@@ -1,17 +1,41 @@
-from pathlib import Path
 import os
+from pathlib import Path
+
+import dj_database_url
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-ledgerlift-mvp-dev')
-DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
-    if host.strip()
-]
+def get_env_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.environ.get(name)
+
+    if raw_value is None:
+        return default
+
+    return raw_value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def get_env_list(name: str, default: str = '') -> list[str]:
+    return [value.strip() for value in os.environ.get(name, default).split(',') if value.strip()]
+
+
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '').strip()
+RENDER_EXTERNAL_URL = f'https://{RENDER_EXTERNAL_HOSTNAME}' if RENDER_EXTERNAL_HOSTNAME else ''
+IS_RENDER = bool(os.environ.get('RENDER')) or bool(RENDER_EXTERNAL_HOSTNAME)
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-ledgerlift-mvp-dev')
+DEBUG = get_env_bool('DJANGO_DEBUG', not IS_RENDER)
+
+ALLOWED_HOSTS = get_env_list('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost')
+
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
+CSRF_TRUSTED_ORIGINS = get_env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
+
+if RENDER_EXTERNAL_URL and RENDER_EXTERNAL_URL not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(RENDER_EXTERNAL_URL)
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -53,7 +77,13 @@ TEMPLATES = [
 WSGI_APPLICATION = 'ledgerlift_backend.wsgi.application'
 ASGI_APPLICATION = 'ledgerlift_backend.asgi.application'
 
-if os.environ.get('POSTGRES_DB') or os.environ.get('PGDATABASE'):
+database_url = os.environ.get('DATABASE_URL', '').strip()
+
+if database_url:
+    DATABASES = {
+        'default': dj_database_url.parse(database_url, conn_max_age=600),
+    }
+elif os.environ.get('POSTGRES_DB') or os.environ.get('PGDATABASE'):
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -86,7 +116,15 @@ TIME_ZONE = 'Africa/Kampala'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+SESSION_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

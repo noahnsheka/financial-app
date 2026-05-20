@@ -70,6 +70,51 @@ GitHub Pages cannot run the PHP frontend or the Django backend. To make demos wo
 
 This keeps the local PHP and Django app available for full development while providing a Pages-safe demo build for stakeholders.
 
+## Render Deployment
+
+Render deployment is split into two services in this repo:
+
+- `docs/` is the public static site.
+- `backend/` is the Django API service.
+
+The PHP frontend in `index.php` is still useful for local development, but the simplest Render path is the static `docs/` frontend plus the Django backend.
+
+### Blueprint
+
+This repo now includes `render.yaml` so Render can create the static site, Django web service, and PostgreSQL database with one blueprint deploy.
+
+### Manual Render Values
+
+Static site:
+
+- Service type: `Static Site`
+- Name: `ledgerlift-uganda-demo`
+- Branch: `main`
+- Root Directory: leave blank
+- Build Command: `echo "static site ready"`
+- Publish Directory: `docs`
+
+Backend web service:
+
+- Service type: `Web Service`
+- Environment: `Python 3`
+- Name: `ledgerlift-uganda-api`
+- Branch: `main`
+- Root Directory: `backend`
+- Build Command: `pip install -r requirements.txt && python manage.py migrate && python manage.py seed_demo_data && python manage.py collectstatic --noinput`
+- Start Command: `gunicorn ledgerlift_backend.wsgi:application --bind 0.0.0.0:$PORT`
+
+Backend environment variables:
+
+- `DJANGO_DEBUG=0`
+- `DJANGO_SECRET_KEY=<generate a long random value>`
+- `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+- `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-demo.onrender.com`
+- `DATABASE_URL=<Render PostgreSQL connection string>`
+
+If you keep the default service names from `render.yaml`, those hostnames will match Render's generated URLs.
+
 ## App Flow
 
 - `Businesses` now loads live registrations from the Django API instead of the original mock PHP list.

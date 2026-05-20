@@ -4,7 +4,7 @@ declare(strict_types=1);
 return [
     'appName' => 'LedgerLift Uganda',
     'tagline' => 'Credit-ready records for informal businesses',
-    'apiBaseUrl' => 'http://localhost:8001/api',
+    'apiBaseUrl' => getenv('LEDGERLIFT_API_BASE_URL') ?: 'http://localhost:8001/api',
     'registrationForm' => [
         'districts' => ['Kampala', 'Wakiso', 'Mukono', 'Jinja', 'Mbarara', 'Gulu', 'Mbale'],
         'sectors' => ['Groceries', 'Beverages', 'Household goods', 'Pharmacy', 'Fresh produce', 'Airtime and utilities', 'Mixed retail'],

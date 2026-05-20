@@ -39,8 +39,10 @@ def get_response_origin(request: HttpRequest | None) -> str:
 
 
 def add_cors_headers(response: HttpResponse, request: HttpRequest | None = None) -> HttpResponse:
+    requested_headers = request.headers.get('Access-Control-Request-Headers') if request else None
+
     response['Access-Control-Allow-Origin'] = get_response_origin(request)
-    response['Access-Control-Allow-Headers'] = 'Content-Type'
+    response['Access-Control-Allow-Headers'] = requested_headers or 'Content-Type, X-CSRFToken'
     response['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response['Access-Control-Allow-Credentials'] = 'true'
     response['Vary'] = 'Origin'
@@ -127,6 +129,33 @@ def health_check(request: HttpRequest) -> HttpResponse:
             'database': 'postgres' if os.environ.get('POSTGRES_DB') or os.environ.get('PGDATABASE') else 'sqlite',
         }
         ,
+        request=request,
+    )
+
+
+def service_root(request: HttpRequest) -> HttpResponse:
+    if request.method == 'OPTIONS':
+        return options_response(request)
+
+    if request.method != 'GET':
+        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    return json_response(
+        {
+            'service': 'ledgerlift-backend',
+            'status': 'ok',
+            'message': 'LedgerLift backend is running.',
+            'health': '/api/health/',
+            'endpoints': [
+                '/api/health/',
+                '/api/demo-accounts/',
+                '/api/auth/login/',
+                '/api/auth/register/',
+                '/api/auth/logout/',
+                '/api/auth/me/',
+                '/api/businesses/',
+            ],
+        },
         request=request,
     )
 
