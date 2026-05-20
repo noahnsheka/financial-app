@@ -1,0 +1,3 @@
+backend/db.sqlite3
+backend/staticfiles/
+backend/**/__pycache__/
