@@ -61,6 +61,7 @@ GitHub Pages cannot run the PHP frontend or the Django backend. To make demos wo
 - Demo registrations are stored in browser local storage.
 - Demo login uses the seeded showcase accounts client-side.
 - Charts, registry views, credit pages, and government views all work without a server.
+- Because `docs/` runs entirely in the browser, its local storage data is user-controlled and cannot be made tamper-proof. The signed ledger protection applies to the Django backend, not the static Pages demo.
 
 ### Publishing
 
@@ -108,6 +109,8 @@ Backend environment variables:
 
 - `DJANGO_DEBUG=0`
 - `DJANGO_SECRET_KEY=<generate a long random value>`
+- `LEDGER_CHAIN_SECRET=<generate a second long random value reserved for ledger signing>`
+- `LEDGER_CHAIN_KEY_ID=render-primary`
 - `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
 - `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-demo.onrender.com`

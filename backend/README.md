@@ -7,6 +7,7 @@ This backend provides a lightweight JSON API for LedgerLift Uganda.
 - `GET /api/health/`
 - `GET /api/businesses/`
 - `POST /api/businesses/`
+- `GET /api/ledger/integrity/`
 - `GET /api/demo-accounts/`
 - `POST /api/auth/login/`
 - `POST /api/auth/logout/`
@@ -35,3 +36,12 @@ Use these credentials on the PHP login page to open the role-based workspace. Au
 - `tin_number` is optional in the current MVP.
 - When present, the registration is marked as ready for tax lookup.
 - Demo registrations bypass the TIN requirement so the product can be showcased before URA integration is added.
+
+## Tamper-Evident Ledger
+
+- Every business registration create or update writes both a business-specific ledger block and a signed app security block in the same database transaction.
+- User account creates and updates, demo access profile changes, and auth events like login failures, login success, registration, and logout are also appended to the app security chain.
+- The app security chain uses SHA-256 hashing plus HMAC signing with `LEDGER_CHAIN_SECRET` so a database-only attacker cannot silently rewrite blocks without the signing secret.
+- `GET /api/ledger/integrity/` returns aggregate verification status for the business ledger and the signed app security ledger for authenticated users.
+- Set `LEDGER_CHAIN_SECRET` separately from `DJANGO_SECRET_KEY` in production so ledger verification is anchored to a dedicated secret.
+- This is a tamper-evident foundation, not a decentralized blockchain network. If you need stronger guarantees later, the next step is anchoring ledger hashes outside the application database.

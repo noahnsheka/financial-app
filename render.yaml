@@ -16,6 +16,10 @@ services:
         value: 0
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      - key: LEDGER_CHAIN_SECRET
+        generateValue: true
+      - key: LEDGER_CHAIN_KEY_ID
+        value: render-primary
       - key: DJANGO_ALLOWED_HOSTS
         value: ledgerlift-uganda-api.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS

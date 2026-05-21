@@ -5,6 +5,7 @@ from registry.models import BusinessRegistration, DemoAccessProfile
 
 
 User = get_user_model()
+SYSTEM_ACTOR = 'system:seed_demo_data'
 
 DEMO_USERS = [
     {
@@ -74,34 +75,44 @@ class Command(BaseCommand):
         created_businesses = 0
 
         for entry in DEMO_USERS:
-            user, was_created = User.objects.get_or_create(
-                username=entry['username'],
-                defaults={'is_staff': entry['is_staff']},
-            )
+            user = User.objects.filter(username=entry['username']).first()
+            was_created = user is None
+
+            if user is None:
+                user = User(username=entry['username'])
 
             user.is_staff = entry['is_staff']
+            user._ledger_actor = SYSTEM_ACTOR
             user.set_password(entry['password'])
             user.save()
 
-            DemoAccessProfile.objects.update_or_create(
-                user=user,
-                defaults={
-                    'display_name': entry['display_name'],
-                    'role': entry['role'],
-                    'requires_tin': False,
-                    'notes': entry['notes'],
-                },
-            )
+            profile = DemoAccessProfile.objects.filter(user=user).first()
+            if profile is None:
+                profile = DemoAccessProfile(user=user)
+
+            profile.display_name = entry['display_name']
+            profile.role = entry['role']
+            profile.requires_tin = False
+            profile.notes = entry['notes']
+            profile.save(ledger_actor=SYSTEM_ACTOR)
 
             if was_created:
                 created_users += 1
 
         for business in DEMO_BUSINESSES:
-            _, was_created = BusinessRegistration.objects.update_or_create(
+            business_registration = BusinessRegistration.objects.filter(
                 business_name=business['business_name'],
                 owner_name=business['owner_name'],
-                defaults=business,
-            )
+            ).first()
+            was_created = business_registration is None
+
+            if business_registration is None:
+                business_registration = BusinessRegistration()
+
+            for field_name, value in business.items():
+                setattr(business_registration, field_name, value)
+
+            business_registration.save(ledger_actor=SYSTEM_ACTOR)
 
             if was_created:
                 created_businesses += 1

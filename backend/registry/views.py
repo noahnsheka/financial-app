@@ -3,10 +3,11 @@ import os
 from urllib.parse import urlparse
 
 from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import BusinessRegistration, DemoAccessProfile
+from .models import AppSecurityLedgerBlock, BusinessRegistration, BusinessRegistrationLedgerBlock, DemoAccessProfile
 
 
 def get_allowed_origins() -> list[str]:
@@ -72,6 +73,25 @@ def parse_bool(value) -> bool:
     return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def get_client_ip(request: HttpRequest) -> str:
+    forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+
+    return request.META.get('REMOTE_ADDR', '')
+
+
+def build_request_security_payload(request: HttpRequest, **extra_fields) -> dict:
+    payload = {
+        'client_ip': get_client_ip(request),
+        'origin': request.headers.get('Origin', ''),
+        'path': request.path,
+        'user_agent': request.headers.get('User-Agent', ''),
+    }
+    payload.update(extra_fields)
+    return payload
+
+
 def serialize_business(business: BusinessRegistration) -> dict:
     return {
         'id': business.id,
@@ -97,8 +117,15 @@ def serialize_business(business: BusinessRegistration) -> dict:
     }
 
 
+def get_demo_profile(user):
+    try:
+        return user.demo_profile
+    except DemoAccessProfile.DoesNotExist:
+        return None
+
+
 def serialize_session_user(user) -> dict:
-    profile = getattr(user, 'demo_profile', None)
+    profile = get_demo_profile(user)
     role = profile.role if profile else 'field_agent'
     role_label = profile.get_role_display() if profile else 'Field agent'
     recommended_page = {
@@ -133,6 +160,35 @@ def health_check(request: HttpRequest) -> HttpResponse:
     )
 
 
+def ledger_integrity(request: HttpRequest) -> HttpResponse:
+    if request.method == 'OPTIONS':
+        return options_response(request)
+
+    if not request.user.is_authenticated:
+        return json_response({'error': 'Authentication required.'}, status=401, request=request)
+
+    if request.method != 'GET':
+        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    business_verification = BusinessRegistrationLedgerBlock.verify_chain()
+    app_security_verification = AppSecurityLedgerBlock.verify_chain()
+    overall_valid = business_verification['is_valid'] and app_security_verification['is_valid']
+    status = 200 if overall_valid else 409
+    return json_response(
+        {
+            'is_valid': overall_valid,
+            'ledger': business_verification,
+            'ledgers': {
+                'business_registrations': business_verification,
+                'app_security': app_security_verification,
+            },
+            'protection_model': 'tamper-evident hash chains with HMAC signing',
+        },
+        status=status,
+        request=request,
+    )
+
+
 def service_root(request: HttpRequest) -> HttpResponse:
     if request.method == 'OPTIONS':
         return options_response(request)
@@ -154,6 +210,7 @@ def service_root(request: HttpRequest) -> HttpResponse:
                 '/api/auth/logout/',
                 '/api/auth/me/',
                 '/api/businesses/',
+                '/api/ledger/integrity/',
             ],
         },
         request=request,
@@ -216,7 +273,7 @@ def business_collection(request: HttpRequest) -> HttpResponse:
     )
 
     try:
-        business.save()
+        business.save(ledger_actor=request.user.get_username())
     except Exception as exc:
         return json_response({'error': str(exc)}, status=400, request=request)
 
@@ -265,14 +322,46 @@ def login_view(request: HttpRequest) -> HttpResponse:
     password = str(payload.get('password', ''))
 
     if not username or not password:
+        AppSecurityLedgerBlock.append_event(
+            domain=AppSecurityLedgerBlock.Domain.AUTH,
+            event_type='login_rejected',
+            entity_key=f'auth_attempt:{username.lower() or "anonymous"}',
+            actor_identifier=username,
+            payload=build_request_security_payload(
+                request,
+                reason='missing_credentials',
+                username=username,
+            ),
+        )
         return json_response({'error': 'Username and password are required.'}, status=400, request=request)
 
     user = authenticate(request, username=username, password=password)
     if user is None:
+        AppSecurityLedgerBlock.append_event(
+            domain=AppSecurityLedgerBlock.Domain.AUTH,
+            event_type='login_failure',
+            entity_key=f'auth_attempt:{username.lower() or "anonymous"}',
+            actor_identifier=username,
+            payload=build_request_security_payload(
+                request,
+                reason='invalid_credentials',
+                username=username,
+            ),
+        )
         return json_response({'error': 'Invalid username or password.'}, status=401, request=request)
 
     login(request, user)
     request.session.cycle_key()
+    AppSecurityLedgerBlock.append_event(
+        domain=AppSecurityLedgerBlock.Domain.AUTH,
+        event_type='login_success',
+        entity_key=f'user_account:{user.pk}',
+        actor_identifier=user.get_username(),
+        payload=build_request_security_payload(
+            request,
+            username=user.get_username(),
+        ),
+    )
 
     return json_response(
         {
@@ -320,17 +409,29 @@ def register_view(request: HttpRequest) -> HttpResponse:
     if user_model.objects.filter(username__iexact=username).exists():
         return json_response({'error': 'That username is already in use.'}, status=400, request=request)
 
-    user = user_model.objects.create_user(username=username, password=password)
-    DemoAccessProfile.objects.create(
-        user=user,
-        display_name=display_name,
-        role=DemoAccessProfile.Role.FIELD_AGENT,
-        requires_tin=False,
-        notes='Self-registered field agent account.',
-    )
+    with transaction.atomic():
+        user = user_model.objects.create_user(username=username, password=password)
+        profile = DemoAccessProfile(
+            user=user,
+            display_name=display_name,
+            role=DemoAccessProfile.Role.FIELD_AGENT,
+            requires_tin=False,
+            notes='Self-registered field agent account.',
+        )
+        profile.save(ledger_actor=username)
 
     login(request, user)
     request.session.cycle_key()
+    AppSecurityLedgerBlock.append_event(
+        domain=AppSecurityLedgerBlock.Domain.AUTH,
+        event_type='register_success',
+        entity_key=f'user_account:{user.pk}',
+        actor_identifier=user.get_username(),
+        payload=build_request_security_payload(
+            request,
+            username=user.get_username(),
+        ),
+    )
 
     return json_response(
         {
@@ -349,6 +450,18 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
     if request.method != 'POST':
         return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    if request.user.is_authenticated:
+        AppSecurityLedgerBlock.append_event(
+            domain=AppSecurityLedgerBlock.Domain.AUTH,
+            event_type='logout',
+            entity_key=f'user_account:{request.user.pk}',
+            actor_identifier=request.user.get_username(),
+            payload=build_request_security_payload(
+                request,
+                username=request.user.get_username(),
+            ),
+        )
 
     logout(request)
     return json_response({'message': 'Logged out.'}, request=request)
