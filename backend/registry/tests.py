@@ -27,12 +27,57 @@ def create_business(**overrides) -> BusinessRegistration:
         'location_description': 'Ntinda trading centre',
         'stock_focus': 'Rice and beans',
         'monthly_revenue_band': 'UGX 3M - 6M',
+        'inventory_value_estimate': '1850000.00',
+        'average_monthly_profit': '620000.00',
+        'average_monthly_mobile_money': '2400000.00',
+        'receipt_count': 9,
+        'receipt_value_total': '1800000.00',
         'employee_count': 3,
         'is_demo_account': False,
         'notes': 'Initial registration',
     }
     payload.update(overrides)
     return BusinessRegistration.objects.create(**payload)
+
+
+def create_profile(user, role=DemoAccessProfile.Role.FIELD_AGENT, **overrides) -> DemoAccessProfile:
+    payload = {
+        'display_name': user.username.replace('.', ' ').title(),
+        'role': role,
+        'requires_tin': role != DemoAccessProfile.Role.BUSINESS_OWNER,
+        'notes': '',
+    }
+    payload.update(overrides)
+    profile = DemoAccessProfile(user=user, **payload)
+    profile.save(ledger_actor=user.username)
+    return profile
+
+
+def owner_registration_payload(**overrides) -> dict:
+    payload = {
+        'display_name': 'Paul Ssenfuka',
+        'username': 'paul.owner',
+        'password': 'OwnerPass123!',
+        'confirm_password': 'OwnerPass123!',
+        'business_name': 'Wakiso Home Goods',
+        'phone_number': '+256700111333',
+        'mobile_money_number': '+256700111333',
+        'tin_number': '12345678',
+        'district': 'Wakiso',
+        'sector': 'Retail',
+        'location_description': 'Trading centre next to the taxi stage',
+        'stock_focus': 'Home goods and groceries',
+        'monthly_revenue_band': 'UGX 3M - 6M',
+        'inventory_value_estimate': '2200000.00',
+        'average_monthly_profit': '780000.00',
+        'average_monthly_mobile_money': '2600000.00',
+        'receipt_count': 12,
+        'receipt_value_total': '2100000.00',
+        'employee_count': 3,
+        'notes': 'Owner self-registration',
+    }
+    payload.update(overrides)
+    return payload
 
 
 class BusinessRegistrationLedgerTests(TestCase):
@@ -86,6 +131,15 @@ class BusinessRegistrationLedgerTests(TestCase):
 
         self.assertFalse(verification['is_valid'])
         self.assertEqual(1, verification['failed_block'])
+
+    def test_credit_readiness_responds_to_consistent_financial_evidence(self):
+        business = create_business()
+
+        self.assertGreaterEqual(business.profile_score, 75)
+        self.assertGreaterEqual(business.consistency_score, 60)
+        self.assertGreaterEqual(business.receipt_trust_score, 40)
+        self.assertTrue(business.is_credit_ready)
+        self.assertGreaterEqual(business.credit_score, 60)
 
 
 @override_settings(LEDGER_CHAIN_SECRET='test-ledger-secret')
@@ -160,17 +214,14 @@ class AuthSecurityEventTests(TestCase):
     def test_registration_and_logout_are_logged(self):
         response = self.client.post(
             reverse('register_view'),
-            data=json.dumps(
-                {
-                    'display_name': 'Field Agent',
-                    'username': 'field.guard',
-                    'password': 'FieldPass123!',
-                    'confirm_password': 'FieldPass123!',
-                }
-            ),
+            data=json.dumps(owner_registration_payload(username='field.guard', display_name='Field Guard')),
             content_type='application/json',
         )
         self.assertEqual(201, response.status_code)
+
+        user = get_user_model().objects.get(username='field.guard')
+        self.assertEqual(DemoAccessProfile.Role.BUSINESS_OWNER, user.demo_profile.role)
+        self.assertTrue(BusinessRegistration.objects.filter(account_user=user).exists())
 
         response = self.client.post(reverse('logout_view'))
         self.assertEqual(200, response.status_code)
@@ -207,3 +258,119 @@ class LedgerIntegrityEndpointTests(TestCase):
         self.assertTrue(payload['ledgers']['business_registrations']['is_valid'])
         self.assertTrue(payload['ledgers']['app_security']['is_valid'])
         self.assertEqual('hmac-sha256', payload['ledgers']['app_security']['signature_algorithm'])
+
+
+@override_settings(LEDGER_CHAIN_SECRET='test-ledger-secret')
+class BusinessOwnerAccessTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.owner_user = get_user_model().objects.create_user(username='owner.user', password='OwnerPass123!')
+        create_profile(
+            self.owner_user,
+            role=DemoAccessProfile.Role.BUSINESS_OWNER,
+            display_name='Owner User',
+            requires_tin=False,
+            notes='Owner dashboard access',
+        )
+        self.owner_business = create_business(
+            business_name='Owner Business',
+            owner_name='Owner User',
+            account_user=self.owner_user,
+            notes='Owner-linked business',
+        )
+        self.other_business = create_business(
+            business_name='Other Business',
+            owner_name='Other User',
+            phone_number='+256700111444',
+            mobile_money_number='+256700111444',
+            tin_number='87654321',
+            notes='Not linked to the owner account',
+        )
+
+    def test_registration_creates_owner_profile_and_linked_business(self):
+        response = self.client.post(
+            reverse('register_view'),
+            data=json.dumps(owner_registration_payload(username='new.owner')),
+            content_type='application/json',
+        )
+
+        self.assertEqual(201, response.status_code)
+        payload = response.json()
+
+        user = get_user_model().objects.get(username='new.owner')
+        profile = user.demo_profile
+        business = BusinessRegistration.objects.get(account_user=user)
+
+        self.assertEqual(DemoAccessProfile.Role.BUSINESS_OWNER, profile.role)
+        self.assertEqual('Wakiso Home Goods', business.business_name)
+        self.assertIsNotNone(payload['user']['business'])
+        self.assertEqual(business.id, payload['user']['business']['id'])
+
+    def test_owner_only_sees_assigned_business(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.get(reverse('business_collection'))
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.assertEqual('owned', payload['scope'])
+        self.assertEqual(1, payload['count'])
+        self.assertEqual(self.owner_business.id, payload['results'][0]['id'])
+
+    def test_owner_can_patch_assigned_business(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.patch(
+            reverse('business_detail', args=[self.owner_business.id]),
+            data=json.dumps(
+                {
+                    'business_name': 'Owner Business Updated',
+                    'phone_number': '+256700999111',
+                    'monthly_revenue_band': 'UGX 6M - 10M',
+                    'employee_count': 5,
+                    'notes': 'Updated from owner workspace',
+                }
+            ),
+            content_type='application/json',
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.owner_business.refresh_from_db()
+
+        self.assertEqual('Owner Business Updated', self.owner_business.business_name)
+        self.assertEqual('+256700999111', self.owner_business.phone_number)
+        self.assertEqual('UGX 6M - 10M', self.owner_business.monthly_revenue_band)
+        self.assertEqual(5, self.owner_business.employee_count)
+        self.assertEqual('Updated from owner workspace', self.owner_business.notes)
+
+    def test_owner_cannot_patch_other_business(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.patch(
+            reverse('business_detail', args=[self.other_business.id]),
+            data=json.dumps({'notes': 'Tamper attempt'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(403, response.status_code)
+        self.other_business.refresh_from_db()
+        self.assertEqual('Not linked to the owner account', self.other_business.notes)
+
+    def test_owner_can_submit_credit_registration_with_nin(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.post(
+            reverse('credit_registration', args=[self.owner_business.id]),
+            data=json.dumps({'nin_number': 'CM1234567890AB'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.owner_business.refresh_from_db()
+        self.assertEqual('CM1234567890AB', self.owner_business.nin_number)
+        self.assertEqual(BusinessRegistration.NINVerificationStatus.MANUAL_REVIEW, self.owner_business.nin_verification_status)
+        self.assertEqual(BusinessRegistration.CreditRegistrationStatus.SUBMITTED, self.owner_business.credit_registration_status)
+        self.assertTrue(payload['business']['credit_registration_reference'])

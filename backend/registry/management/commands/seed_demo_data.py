@@ -32,6 +32,14 @@ DEMO_USERS = [
         'notes': 'Use for shop onboarding and registration walkthroughs.',
         'is_staff': False,
     },
+    {
+        'username': 'paul.owner',
+        'password': 'OwnerDemo123!',
+        'display_name': 'Paul Ssenfuka',
+        'role': DemoAccessProfile.Role.BUSINESS_OWNER,
+        'notes': 'Use for business-owner dashboards and profile adjustments.',
+        'is_staff': False,
+    },
 ]
 
 DEMO_BUSINESSES = [
@@ -45,6 +53,11 @@ DEMO_BUSINESSES = [
         'location_description': 'Kisenyi market lane',
         'stock_focus': 'Sugar, flour, soap',
         'monthly_revenue_band': 'UGX 3M - 6M',
+        'inventory_value_estimate': '950000.00',
+        'average_monthly_profit': '220000.00',
+        'average_monthly_mobile_money': '700000.00',
+        'receipt_count': 2,
+        'receipt_value_total': '350000.00',
         'employee_count': 3,
         'is_demo_account': True,
         'notes': 'Seeded business for demo flows without TIN lookup.',
@@ -60,9 +73,15 @@ DEMO_BUSINESSES = [
         'location_description': 'Bwebajja trading center',
         'stock_focus': 'Cleaning supplies and cooking oil',
         'monthly_revenue_band': 'UGX 6M - 10M',
+        'inventory_value_estimate': '2800000.00',
+        'average_monthly_profit': '980000.00',
+        'average_monthly_mobile_money': '4700000.00',
+        'receipt_count': 14,
+        'receipt_value_total': '4200000.00',
         'employee_count': 4,
         'is_demo_account': False,
-        'notes': 'Seeded example with TIN ready for future tax API lookup.',
+        'account_username': 'paul.owner',
+        'notes': 'Seeded example with strong records so the owner can open the NIN-backed credit registration flow immediately.',
     },
 ]
 
@@ -73,6 +92,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         created_users = 0
         created_businesses = 0
+        users_by_username = {}
 
         for entry in DEMO_USERS:
             user = User.objects.filter(username=entry['username']).first()
@@ -95,6 +115,7 @@ class Command(BaseCommand):
             profile.requires_tin = False
             profile.notes = entry['notes']
             profile.save(ledger_actor=SYSTEM_ACTOR)
+            users_by_username[user.username] = user
 
             if was_created:
                 created_users += 1
@@ -110,7 +131,12 @@ class Command(BaseCommand):
                 business_registration = BusinessRegistration()
 
             for field_name, value in business.items():
+                if field_name == 'account_username':
+                    continue
                 setattr(business_registration, field_name, value)
+
+            account_username = str(business.get('account_username', '')).strip()
+            business_registration.account_user = users_by_username.get(account_username) if account_username else None
 
             business_registration.save(ledger_actor=SYSTEM_ACTOR)
 

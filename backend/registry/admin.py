@@ -15,6 +15,7 @@ class BusinessRegistrationAdmin(admin.ModelAdmin):
     list_display = (
         'business_name',
         'owner_name',
+        'account_user',
         'district',
         'sector',
         'tin_number',
@@ -23,7 +24,7 @@ class BusinessRegistrationAdmin(admin.ModelAdmin):
         'created_at',
     )
     list_filter = ('district', 'sector', 'is_demo_account', 'tax_lookup_status')
-    search_fields = ('business_name', 'owner_name', 'tin_number', 'phone_number', 'mobile_money_number')
+    search_fields = ('business_name', 'owner_name', 'account_user__username', 'tin_number', 'phone_number', 'mobile_money_number')
 
 
 @admin.register(BusinessRegistrationLedgerBlock)

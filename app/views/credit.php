@@ -59,50 +59,53 @@
     </div>
 </section>
 
-<section class="row g-3">
-    <div class="col-lg-12">
-        <article class="panel">
+<section class="row g-3 mb-3">
+    <div class="col-lg-7">
+        <article class="panel h-100">
             <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
                 <div>
-                    <p class="section-kicker mb-2">Early applicants</p>
-                    <h2 class="h4 mb-1">Businesses that could move into a first loan cohort</h2>
-                    <p class="text-muted mb-0">These cards show how the same captured operating data can become an underwriting summary.</p>
+                    <p class="section-kicker mb-2">Live readiness analytics</p>
+                    <h2 class="h4 mb-1">Signals that now drive the credit percentage</h2>
+                    <p class="text-muted mb-0">Signed-in users see live scoring categories built from receipts, stock, mobile money, profit consistency, and identity readiness.</p>
                 </div>
-                <span class="pill-note align-self-start">Pilot shortlist</span>
+                <span class="pill-note align-self-start">Live model</span>
             </div>
+            <div class="row g-3" data-credit-live-metrics>
+                <div class="col-12 text-muted">Sign in to load live credit analytics.</div>
+            </div>
+        </article>
+    </div>
 
-            <div class="row g-3">
-                <?php foreach (array_slice($data['businesses'], 0, 3) as $business): ?>
-                    <div class="col-md-6 col-xl-4">
-                        <div class="business-card h-100">
-                            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                                <div>
-                                    <strong class="d-block mb-1"><?php echo e($business['name']); ?></strong>
-                                    <span class="text-muted small"><?php echo e($business['sector']); ?> in <?php echo e($business['district']); ?></span>
-                                </div>
-                                <span class="metric-icon metric-icon-forest small-icon">
-                                    <i class="bi bi-shield-check"></i>
-                                </span>
-                            </div>
-                            <div class="d-flex justify-content-between text-muted small mb-2">
-                                <span>Daily revenue</span>
-                                <span><?php echo e($business['dailyRevenue']); ?></span>
-                            </div>
-                            <div class="d-flex justify-content-between text-muted small mb-2">
-                                <span>Digitization</span>
-                                <span><?php echo e($business['digitization']); ?></span>
-                            </div>
-                            <div class="d-flex justify-content-between text-muted small mb-3">
-                                <span>Reliability</span>
-                                <span><?php echo e($business['reliability']); ?></span>
-                            </div>
-                            <div class="progress score-progress mb-2">
-                                <div class="progress-bar" role="progressbar" style="width: <?php echo e($business['score']); ?>%" aria-valuenow="<?php echo e($business['score']); ?>" aria-valuemin="0" aria-valuemax="100"></div>
-                            </div>
-                            <div class="small fw-semibold"><?php echo e($business['score']); ?>/100 readiness</div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
+    <div class="col-lg-5">
+        <article class="panel h-100">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
+                <div>
+                    <p class="section-kicker mb-2">Credit-ready businesses</p>
+                    <h2 class="h4 mb-1">Who could move into the next facility cohort</h2>
+                    <p class="text-muted mb-0">This shortlist updates from the live registry and highlights businesses that have the best evidence for underwriting.</p>
+                </div>
+                <span class="pill-note align-self-start">Live shortlist</span>
+            </div>
+            <div class="registration-feed" data-credit-shortlist>
+                Sign in to load the live credit shortlist.
+            </div>
+        </article>
+    </div>
+</section>
+
+<section class="row g-3">
+    <div class="col-lg-12">
+        <article class="panel h-100">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
+                <div>
+                    <p class="section-kicker mb-2">Credit-ready registration</p>
+                    <h2 class="h4 mb-1">NIN-backed registration for the next step</h2>
+                    <p class="text-muted mb-0">When a live business becomes credit ready, the signed-in owner can submit a NIN here for the NIRA or NITA verification workflow.</p>
+                </div>
+                <span class="pill-note align-self-start">Owner action</span>
+            </div>
+            <div data-credit-registration-content>
+                Businesses that cross the readiness threshold will expose the NIN registration flow here for the signed-in owner.
             </div>
         </article>
     </div>

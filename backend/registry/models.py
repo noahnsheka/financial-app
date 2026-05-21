@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -37,6 +38,62 @@ def fingerprint_value(value: str | None) -> str:
     return hashlib.sha256(str(value).encode('utf-8')).hexdigest()
 
 
+def serialize_decimal(value: Decimal | int | float | str | None) -> str:
+    if value in {None, ''}:
+        return '0.00'
+
+    return format(Decimal(str(value)), '.2f')
+
+
+def decimal_or_zero(value: Decimal | int | float | str | None) -> Decimal:
+    if value in {None, ''}:
+        return Decimal('0')
+
+    if isinstance(value, Decimal):
+        return value
+
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal('0')
+
+
+def int_or_zero(value: int | str | None) -> int:
+    if value in {None, ''}:
+        return 0
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def clamp_score(value: float) -> int:
+    return max(0, min(100, int(round(value))))
+
+
+def score_ratio_range(value: float, lower: float, upper: float) -> int:
+    if value <= 0 or lower <= 0 or upper <= 0:
+        return 0
+
+    if lower <= value <= upper:
+        return 100
+
+    if value < lower:
+        return clamp_score((value / lower) * 100)
+
+    return clamp_score((upper / value) * 100)
+
+
+REVENUE_BAND_MIDPOINTS = {
+    'Below UGX 1M': Decimal('500000'),
+    'UGX 1M - 3M': Decimal('2000000'),
+    'UGX 3M - 6M': Decimal('4500000'),
+    'UGX 6M - 10M': Decimal('8000000'),
+    'Above UGX 10M': Decimal('12000000'),
+}
+
+
 def hash_ledger_block(*, chain_index: int, previous_hash: str, business_id: int, operation: str, payload: dict) -> str:
     block_payload = {
         'business_id': business_id,
@@ -54,16 +111,41 @@ class BusinessRegistration(models.Model):
         READY = 'ready_for_lookup', 'Ready for tax lookup'
         DEMO = 'demo_bypass', 'Demo account bypass'
 
+    class NINVerificationStatus(models.TextChoices):
+        NOT_SUBMITTED = 'not_submitted', 'NIN not submitted'
+        PENDING = 'pending', 'Pending NIRA or NITA verification'
+        VERIFIED = 'verified', 'Verified through NIRA or NITA'
+        MANUAL_REVIEW = 'manual_review', 'Manual review required'
+
+    class CreditRegistrationStatus(models.TextChoices):
+        NOT_STARTED = 'not_started', 'Not ready for credit registration'
+        ELIGIBLE = 'eligible', 'Eligible for credit registration'
+        SUBMITTED = 'submitted', 'Credit registration submitted'
+        VERIFIED = 'verified', 'Credit registration verified'
+
     business_name = models.CharField(max_length=150)
     owner_name = models.CharField(max_length=120)
     phone_number = models.CharField(max_length=20)
     mobile_money_number = models.CharField(max_length=20, blank=True)
     tin_number = models.CharField(max_length=30, blank=True, null=True)
+    nin_number = models.CharField(max_length=14, blank=True)
+    nin_verification_status = models.CharField(
+        max_length=20,
+        choices=NINVerificationStatus.choices,
+        default=NINVerificationStatus.NOT_SUBMITTED,
+    )
+    nin_verification_source = models.CharField(max_length=30, blank=True)
+    nin_verification_notes = models.CharField(max_length=180, blank=True)
     district = models.CharField(max_length=80)
     sector = models.CharField(max_length=80)
     location_description = models.CharField(max_length=180, blank=True)
     stock_focus = models.CharField(max_length=120, blank=True)
     monthly_revenue_band = models.CharField(max_length=80, blank=True)
+    inventory_value_estimate = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    average_monthly_profit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    average_monthly_mobile_money = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    receipt_count = models.PositiveIntegerField(default=0)
+    receipt_value_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     employee_count = models.PositiveSmallIntegerField(default=1)
     is_demo_account = models.BooleanField(default=False)
     tax_lookup_status = models.CharField(
@@ -71,7 +153,21 @@ class BusinessRegistration(models.Model):
         choices=TaxLookupStatus.choices,
         default=TaxLookupStatus.NOT_PROVIDED,
     )
+    credit_registration_status = models.CharField(
+        max_length=20,
+        choices=CreditRegistrationStatus.choices,
+        default=CreditRegistrationStatus.NOT_STARTED,
+    )
+    credit_registration_reference = models.CharField(max_length=60, blank=True)
+    credit_registration_submitted_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    account_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='owned_business',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -82,21 +178,55 @@ class BusinessRegistration(models.Model):
         return f'{self.business_name} ({self.owner_name})'
 
     def clean(self) -> None:
+        self.nin_number = (self.nin_number or '').strip().upper()
+        inventory_value_estimate = decimal_or_zero(self.inventory_value_estimate)
+        average_monthly_profit = decimal_or_zero(self.average_monthly_profit)
+        average_monthly_mobile_money = decimal_or_zero(self.average_monthly_mobile_money)
+        receipt_value_total = decimal_or_zero(self.receipt_value_total)
+
         if self.tin_number and len(self.tin_number.strip()) < 8:
             raise ValidationError({'tin_number': 'TIN must be at least 8 characters when provided.'})
 
+        if self.nin_number and (len(self.nin_number) != 14 or not self.nin_number.isalnum()):
+            raise ValidationError({'nin_number': 'NIN must be a 14-character alphanumeric Uganda national ID number.'})
+
+        if inventory_value_estimate < 0:
+            raise ValidationError({'inventory_value_estimate': 'Inventory value cannot be negative.'})
+
+        if average_monthly_profit < 0:
+            raise ValidationError({'average_monthly_profit': 'Average monthly profit cannot be negative.'})
+
+        if average_monthly_mobile_money < 0:
+            raise ValidationError({'average_monthly_mobile_money': 'Average mobile money total cannot be negative.'})
+
+        if receipt_value_total < 0:
+            raise ValidationError({'receipt_value_total': 'Receipt value total cannot be negative.'})
+
     def ledger_payload(self) -> dict:
         return {
+            'account_user_id': self.account_user_id,
+            'account_username': self.account_user.get_username() if self.account_user_id else '',
+            'average_monthly_mobile_money': serialize_decimal(self.average_monthly_mobile_money),
+            'average_monthly_profit': serialize_decimal(self.average_monthly_profit),
             'business_name': self.business_name,
+            'credit_registration_reference': self.credit_registration_reference,
+            'credit_registration_status': self.credit_registration_status,
             'district': self.district,
             'employee_count': self.employee_count,
+            'inventory_value_estimate': serialize_decimal(self.inventory_value_estimate),
             'is_demo_account': self.is_demo_account,
             'location_description': self.location_description,
             'mobile_money_number': self.mobile_money_number,
             'monthly_revenue_band': self.monthly_revenue_band,
+            'nin_number_fingerprint': fingerprint_value(self.nin_number),
+            'nin_verification_notes': self.nin_verification_notes,
+            'nin_verification_source': self.nin_verification_source,
+            'nin_verification_status': self.nin_verification_status,
             'notes': self.notes,
             'owner_name': self.owner_name,
             'phone_number': self.phone_number,
+            'receipt_count': self.receipt_count,
+            'receipt_value_total': serialize_decimal(self.receipt_value_total),
             'sector': self.sector,
             'stock_focus': self.stock_focus,
             'tax_lookup_status': self.tax_lookup_status,
@@ -123,6 +253,24 @@ class BusinessRegistration(models.Model):
         else:
             self.tax_lookup_status = self.TaxLookupStatus.NOT_PROVIDED
 
+        if not self.nin_number:
+            self.nin_verification_status = self.NINVerificationStatus.NOT_SUBMITTED
+            self.nin_verification_source = ''
+            self.nin_verification_notes = ''
+
+        if self.credit_registration_status not in {
+            self.CreditRegistrationStatus.SUBMITTED,
+            self.CreditRegistrationStatus.VERIFIED,
+        }:
+            self.credit_registration_status = (
+                self.CreditRegistrationStatus.ELIGIBLE
+                if self.is_credit_ready
+                else self.CreditRegistrationStatus.NOT_STARTED
+            )
+            if self.credit_registration_status == self.CreditRegistrationStatus.NOT_STARTED:
+                self.credit_registration_reference = ''
+                self.credit_registration_submitted_at = None
+
         self.full_clean()
         pending_payload = self.ledger_payload()
 
@@ -148,13 +296,21 @@ class BusinessRegistration(models.Model):
 
     @property
     def profile_score(self) -> int:
-        score = 40
-        score += 12 if self.mobile_money_number else 0
-        score += 18 if self.tin_number else 0
-        score += 10 if self.stock_focus else 0
-        score += 8 if self.monthly_revenue_band else 0
-        score += 7 if self.location_description else 0
-        score += min(self.employee_count, 5)
+        receipt_count = int_or_zero(self.receipt_count)
+        employee_count = int_or_zero(self.employee_count)
+        inventory_value_estimate = decimal_or_zero(self.inventory_value_estimate)
+        average_monthly_profit = decimal_or_zero(self.average_monthly_profit)
+        average_monthly_mobile_money = decimal_or_zero(self.average_monthly_mobile_money)
+        score = 30
+        score += 10 if self.mobile_money_number else 0
+        score += 12 if self.tin_number else 0
+        score += 8 if self.stock_focus else 0
+        score += 6 if self.monthly_revenue_band else 0
+        score += 6 if self.location_description else 0
+        score += 6 if self.nin_number else 0
+        score += 6 if receipt_count >= 5 else 0
+        score += 6 if inventory_value_estimate and average_monthly_profit and average_monthly_mobile_money else 0
+        score += min(employee_count, 5)
         score += 5 if not self.is_demo_account else 0
         return min(score, 100)
 
@@ -171,6 +327,124 @@ class BusinessRegistration(models.Model):
     @property
     def account_mode(self) -> str:
         return 'Demo' if self.is_demo_account else 'Live'
+
+    @property
+    def revenue_band_midpoint(self) -> Decimal:
+        return REVENUE_BAND_MIDPOINTS.get(self.monthly_revenue_band, Decimal('0'))
+
+    @property
+    def receipt_trust_score(self) -> int:
+        receipt_count = int_or_zero(self.receipt_count)
+        receipt_value_total = decimal_or_zero(self.receipt_value_total)
+        count_score = min(receipt_count, 20) / 20 * 100
+
+        if self.revenue_band_midpoint > 0:
+            value_score = min(float(receipt_value_total / self.revenue_band_midpoint) / 0.65, 1.0) * 100
+        else:
+            value_score = 50 if receipt_value_total > 0 else 0
+
+        return clamp_score((count_score * 0.6) + (value_score * 0.4))
+
+    @property
+    def consistency_score(self) -> int:
+        inventory_value_estimate = decimal_or_zero(self.inventory_value_estimate)
+        average_monthly_profit = decimal_or_zero(self.average_monthly_profit)
+        average_monthly_mobile_money = decimal_or_zero(self.average_monthly_mobile_money)
+        receipt_value_total = decimal_or_zero(self.receipt_value_total)
+
+        if self.revenue_band_midpoint <= 0:
+            return 35 if any([
+                inventory_value_estimate,
+                average_monthly_profit,
+                average_monthly_mobile_money,
+            ]) else 20
+
+        revenue_midpoint = float(self.revenue_band_midpoint)
+        margin_ratio = float(average_monthly_profit / self.revenue_band_midpoint) if average_monthly_profit else 0.0
+        mobile_money_ratio = float(average_monthly_mobile_money / self.revenue_band_midpoint) if average_monthly_mobile_money else 0.0
+        inventory_ratio = float(inventory_value_estimate / self.revenue_band_midpoint) if inventory_value_estimate else 0.0
+
+        scores = [
+            score_ratio_range(margin_ratio, 0.08, 0.35) if average_monthly_profit else 35,
+            score_ratio_range(mobile_money_ratio, 0.15, 0.9) if average_monthly_mobile_money else 35,
+            score_ratio_range(inventory_ratio, 0.12, 1.4) if inventory_value_estimate else 35,
+        ]
+
+        if revenue_midpoint > 0 and receipt_value_total > 0:
+            receipt_coverage_ratio = float(receipt_value_total / self.revenue_band_midpoint)
+            scores.append(score_ratio_range(receipt_coverage_ratio, 0.15, 1.3))
+
+        return clamp_score(sum(scores) / len(scores))
+
+    @property
+    def identity_trust_score(self) -> int:
+        if self.nin_verification_status == self.NINVerificationStatus.VERIFIED:
+            return 100
+
+        if self.nin_verification_status == self.NINVerificationStatus.MANUAL_REVIEW:
+            return 70
+
+        if self.nin_verification_status == self.NINVerificationStatus.PENDING:
+            return 55
+
+        return 45 if self.nin_number else 20
+
+    @property
+    def credit_readiness_score(self) -> int:
+        score = (self.profile_score * 0.35) + (self.consistency_score * 0.4) + (self.receipt_trust_score * 0.25)
+
+        if self.is_demo_account:
+            return min(clamp_score(score), 55)
+
+        return clamp_score(score)
+
+    @property
+    def credit_score(self) -> int:
+        return clamp_score((self.credit_readiness_score * 0.75) + (self.identity_trust_score * 0.25))
+
+    @property
+    def credit_label(self) -> str:
+        if self.credit_score >= 80:
+            return 'Credit ready'
+
+        if self.credit_score >= 65:
+            return 'Conditional review'
+
+        return 'Build more evidence'
+
+    @property
+    def is_credit_ready(self) -> bool:
+        return not self.is_demo_account and self.credit_readiness_score >= 70
+
+    @property
+    def fraud_risk_level(self) -> str:
+        if self.consistency_score >= 80:
+            return 'low'
+
+        if self.consistency_score >= 60:
+            return 'watch'
+
+        return 'high'
+
+    @property
+    def credit_signal_gaps(self) -> list[str]:
+        receipt_count = int_or_zero(self.receipt_count)
+        average_monthly_profit = decimal_or_zero(self.average_monthly_profit)
+        gaps = []
+
+        if not self.nin_number:
+            gaps.append('Add the owner NIN to start identity verification with NIRA or NITA.')
+
+        if receipt_count < 5:
+            gaps.append('Upload more receipt evidence to strengthen the trust score.')
+
+        if self.consistency_score < 60:
+            gaps.append('Inventory, profit, mobile money, and receipt totals do not align closely enough yet.')
+
+        if not average_monthly_profit:
+            gaps.append('Add monthly profit figures so the credit engine can compare operating performance.')
+
+        return gaps
 
 
 class BusinessRegistrationChainState(models.Model):
@@ -543,6 +817,7 @@ class DemoAccessProfile(models.Model):
         GOVERNMENT = 'government', 'Government officer'
         LENDER = 'lender', 'Lender'
         FIELD_AGENT = 'field_agent', 'Field agent'
+        BUSINESS_OWNER = 'business_owner', 'Business owner'
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='demo_profile')
     display_name = models.CharField(max_length=120)

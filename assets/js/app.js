@@ -222,6 +222,13 @@ const currentUserCard = document.querySelector('[data-current-user-card]');
 const roleNotes = document.querySelector('[data-role-notes]');
 const dashboardPrimaryCta = document.querySelector('[data-dashboard-primary-cta]');
 const dashboardSecondaryCta = document.querySelector('[data-dashboard-secondary-cta]');
+const creditLiveMetrics = document.querySelector('[data-credit-live-metrics]');
+const creditShortlist = document.querySelector('[data-credit-shortlist]');
+const creditRegistrationContent = document.querySelector('[data-credit-registration-content]');
+const governmentCategories = document.querySelector('[data-government-categories]');
+const governmentDistrictCount = document.querySelector('[data-government-district-count]');
+const governmentDistrictTable = document.querySelector('[data-government-district-table]');
+const governmentInterventions = document.querySelector('[data-government-interventions]');
 
 const isLocalFrontend = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const configuredApiBaseUrl = (appData.apiBaseUrl || 'http://127.0.0.1:8001/api').replace(/\/$/, '');
@@ -230,6 +237,12 @@ const localApiBaseUrl = 'http://127.0.0.1:8001/api';
 const apiBaseUrl = isLocalFrontend ? localApiBaseUrl : configuredApiBaseUrl;
 const authStorageKey = 'ledgerlift.auth.session';
 const publicPages = new Set(['dashboard', 'login', 'credit', 'government']);
+const officialRoles = new Set(['government', 'lender', 'field_agent']);
+const ugxFormatter = new Intl.NumberFormat('en-UG', {
+    style: 'currency',
+    currency: 'UGX',
+    maximumFractionDigits: 0,
+});
 
 const roleBlueprints = {
     government: {
@@ -271,15 +284,25 @@ const roleBlueprints = {
             { title: 'Review incomplete profiles', detail: 'Use the live registry to identify businesses that still need TIN or revenue details.', href: '?page=businesses', cta: 'Open business registry' },
         ],
     },
+    business_owner: {
+        workspaceTitle: 'Business owner workspace',
+        workspaceDescription: 'Track your linked business profile, review how complete the record is, and save adjustments that stay with your account.',
+        notes: [
+            'Keep contact numbers, revenue band, and stock focus current so your business profile stays useful between sessions.',
+            'Add location and operating notes whenever something changes in the business so future reviews use accurate information.',
+            'Saved adjustments are written back to your linked business profile and will be available the next time you sign in.',
+        ],
+        actions: [],
+    },
 };
 
 const guestGateCopy = {
     title: 'Sign in or create an account to unlock the live platform',
-    description: 'LedgerLift Uganda helps teams onboard informal businesses, monitor credit readiness, and focus support where it matters most. Live registry views, registration tools, and role workspaces stay locked until a user signs in.',
+    description: 'LedgerLift Uganda helps officials review business readiness and gives business owners a private workspace for their own linked account. Live registry views, registration tools, and owner workspaces stay locked until a user signs in.',
     highlights: [
         'Business onboarding with optional TIN capture for evolving tax verification.',
         'Credit-readiness signals built from payment history, stock detail, and record quality.',
-        'Government and lender workspaces for program oversight and first-loan decisions.',
+        'Separate official and business-owner workspaces once the user signs in.',
     ],
 };
 
@@ -414,6 +437,14 @@ const updateDashboardHeroActions = (session) => {
     }
 
     if (session?.user) {
+        if (session.user.role === 'business_owner') {
+            dashboardPrimaryCta.textContent = 'Open my workspace';
+            dashboardPrimaryCta.href = '?page=workspace';
+            dashboardSecondaryCta.textContent = 'View my business profile';
+            dashboardSecondaryCta.href = '?page=businesses';
+            return;
+        }
+
         dashboardPrimaryCta.textContent = 'Register business';
         dashboardPrimaryCta.href = '?page=registration';
         dashboardSecondaryCta.textContent = 'Review businesses';
@@ -425,6 +456,397 @@ const updateDashboardHeroActions = (session) => {
     dashboardPrimaryCta.href = '?page=login';
     dashboardSecondaryCta.textContent = 'Create account';
     dashboardSecondaryCta.href = '?page=login#register-account';
+};
+
+const formatWorkspaceDate = (value) => {
+    if (!value) {
+        return 'Not yet saved';
+    }
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime())
+        ? 'Not yet saved'
+        : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const toNumber = (value) => {
+    const parsed = Number.parseFloat(String(value ?? '0').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const averageRounded = (values) => values.length
+    ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    : 0;
+
+const formatCurrencyUGX = (value) => ugxFormatter.format(toNumber(value));
+
+const formatRiskLabel = (level) => {
+    if (level === 'low') {
+        return 'Low risk';
+    }
+
+    if (level === 'watch') {
+        return 'Watch list';
+    }
+
+    return 'High risk';
+};
+
+const riskToneClass = (level) => {
+    if (level === 'low') {
+        return 'pill-note-success';
+    }
+
+    if (level === 'watch') {
+        return 'pill-note-muted';
+    }
+
+    return 'pill-note-danger';
+};
+
+const groupBusinessesByDistrict = (businesses) => businesses.reduce((accumulator, business) => {
+    const district = business.district || 'Unknown';
+
+    if (!accumulator[district]) {
+        accumulator[district] = [];
+    }
+
+    accumulator[district].push(business);
+    return accumulator;
+}, {});
+
+const renderWorkspaceMetricTiles = (metrics) => metrics
+    .map((metric) => `
+        <div class="col-sm-6 col-xl-3">
+            <div class="metric-tile h-100">
+                <span class="section-kicker mb-2">${metric.label}</span>
+                <strong>${metric.value}</strong>
+                <p class="text-muted mb-0">${metric.detail}</p>
+            </div>
+        </div>
+    `)
+    .join('');
+
+const getOwnerBusiness = (user, businesses) => user?.business || businesses[0] || null;
+
+const buildOwnerGuidance = (business) => {
+    const guidance = [];
+
+    if (business.credit_registration_status === 'verified') {
+        guidance.push('Your NIN-backed credit registration is verified. Keep the operating record current while the credit review proceeds.');
+    } else if (business.credit_registration_status === 'submitted') {
+        guidance.push('Your NIN-backed credit registration is already in progress. Track the reference and verification note in the credit registration panel.');
+    } else if (business.is_credit_ready) {
+        guidance.push('Your business is operationally credit ready. Submit the NIN-backed registration step next so the identity workflow can begin.');
+    }
+
+    if ((business.profile_score || 0) >= 80) {
+        guidance.push('Your business record is already strong. Keep it current whenever contact details, stock focus, or revenue patterns change.');
+    } else if ((business.profile_score || 0) >= 65) {
+        guidance.push('Your business profile is growing, but a few more details will make it easier for officials or lenders to review confidently.');
+    } else {
+        guidance.push('Your business profile still needs more operational detail before it presents a strong digital picture. Start with the missing items below.');
+    }
+
+    if (Array.isArray(business.credit_signal_gaps) && business.credit_signal_gaps.length > 0) {
+        guidance.push(...business.credit_signal_gaps);
+    }
+
+    if (!business.tin_number) {
+        guidance.push('Add or confirm a TIN when available so the profile is ready for future formal tax verification.');
+    }
+
+    if (!business.mobile_money_number) {
+        guidance.push('Add the business mobile money number so the profile reflects how the business actually receives payments.');
+    }
+
+    if (!business.location_description) {
+        guidance.push('Describe the trading location more clearly so the business can be identified accurately by support teams.');
+    }
+
+    if (!business.stock_focus) {
+        guidance.push('Add the main stock focus to show what the business sells and where future credit or supply support may matter most.');
+    }
+
+    if (!business.monthly_revenue_band) {
+        guidance.push('Choose the closest monthly revenue band so the dashboard can reflect the current scale of the business.');
+    }
+
+    return guidance.slice(0, 4);
+};
+
+const renderOfficialBusinessDetailPanel = (businesses) => {
+    const visibleBusinesses = businesses.slice(0, 3);
+
+    return `
+        <div class="col-12">
+            <article class="business-card workspace-detail-card h-100">
+                <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
+                    <div>
+                        <p class="section-kicker mb-2">Detailed business visibility</p>
+                        <strong class="d-block mb-2">Registry spotlight</strong>
+                        <p class="text-muted mb-0">Officials can review full profile details for the most relevant businesses directly from the workspace.</p>
+                    </div>
+                    <span class="pill-note pill-note-muted align-self-start">${visibleBusinesses.length} profiles shown</span>
+                </div>
+                ${visibleBusinesses.length === 0
+                    ? '<p class="text-muted mb-0">No business records are available right now.</p>'
+                    : visibleBusinesses.map((business) => `
+                        <div class="workspace-business-detail">
+                            <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
+                                <div>
+                                    <strong class="d-block mb-1">${business.business_name}</strong>
+                                    <span class="text-muted small">${business.owner_name} · ${business.sector} · ${business.district}</span>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 align-items-start">
+                                    <span class="status-pill ${business.tax_lookup_status === 'ready_for_lookup' ? 'status-pill-watch' : business.tax_lookup_status === 'demo_bypass' ? 'status-pill-high' : 'status-pill-low'}">${business.tax_lookup_status_label}</span>
+                                    <span class="pill-note ${riskToneClass(business.fraud_risk_level)}">${formatRiskLabel(business.fraud_risk_level)}</span>
+                                </div>
+                            </div>
+                            <div class="workspace-detail-grid">
+                                <div class="workspace-detail-item"><span>Phone</span><strong>${business.phone_number || 'Not provided'}</strong></div>
+                                <div class="workspace-detail-item"><span>Mobile money</span><strong>${business.mobile_money_number || 'Not provided'}</strong></div>
+                                <div class="workspace-detail-item"><span>TIN</span><strong>${business.tin_number || 'Not provided'}</strong></div>
+                                <div class="workspace-detail-item"><span>NIN status</span><strong>${business.nin_verification_status_label || 'Not submitted'}</strong></div>
+                                <div class="workspace-detail-item"><span>Revenue band</span><strong>${business.monthly_revenue_band || 'Pending capture'}</strong></div>
+                                <div class="workspace-detail-item"><span>Employees</span><strong>${business.employee_count || 1}</strong></div>
+                                <div class="workspace-detail-item"><span>Credit score</span><strong>${business.credit_score || 0}/100 · ${business.credit_label || 'Pending'}</strong></div>
+                                <div class="workspace-detail-item"><span>Receipts</span><strong>${business.receipt_count || 0} receipts</strong></div>
+                                <div class="workspace-detail-item"><span>Updated</span><strong>${formatWorkspaceDate(business.updated_at)}</strong></div>
+                                <div class="workspace-detail-item workspace-detail-item-wide"><span>Location</span><strong>${business.location_description || 'No location details on file.'}</strong></div>
+                                <div class="workspace-detail-item workspace-detail-item-wide"><span>Stock focus</span><strong>${business.stock_focus || 'No stock focus on file.'}</strong></div>
+                                <div class="workspace-detail-item workspace-detail-item-wide"><span>Notes</span><strong>${business.notes || 'No operating notes recorded yet.'}</strong></div>
+                            </div>
+                        </div>
+                    `).join('')}
+            </article>
+        </div>
+    `;
+};
+
+const showOwnerWorkspaceMessage = (message, tone) => {
+    const ownerMessage = workspaceContainer?.querySelector('[data-owner-business-message]');
+
+    if (!ownerMessage) {
+        return;
+    }
+
+    ownerMessage.textContent = message;
+    ownerMessage.className = `form-status form-status-${tone} is-visible`;
+};
+
+const showCreditRegistrationMessage = (message, tone) => {
+    const registrationMessage = document.querySelector('[data-credit-registration-message]');
+
+    if (!registrationMessage) {
+        return;
+    }
+
+    registrationMessage.textContent = message;
+    registrationMessage.className = `form-status form-status-${tone} is-visible`;
+};
+
+const buildCreditRegistrationPanel = (business) => {
+    if (!business) {
+        return `
+            <article class="panel owner-credit-panel h-100">
+                <p class="section-kicker mb-2">Credit registration</p>
+                <strong class="d-block mb-2">No linked business profile yet</strong>
+                <p class="mb-0 text-muted">A linked live business is required before the owner can start NIN-backed credit registration.</p>
+            </article>
+        `;
+    }
+
+    if (!business.is_credit_ready) {
+        return `
+            <article class="panel owner-credit-panel h-100">
+                <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                    <div>
+                        <p class="section-kicker mb-2">Credit registration</p>
+                        <strong class="d-block mb-2">Build more evidence before NIN submission</strong>
+                        <p class="text-muted mb-0">This business is not operationally credit ready yet, so the NIN-backed registration step is still locked.</p>
+                    </div>
+                    <span class="pill-note pill-note-muted align-self-start">${business.credit_readiness_score || 0}/100 readiness</span>
+                </div>
+                <div class="registration-feed">
+                    ${(business.credit_signal_gaps || ['Add more operating evidence to unlock the credit registration step.'])
+                        .slice(0, 4)
+                        .map((gap) => `<div class="feed-item"><p class="mb-0 text-muted">${gap}</p></div>`)
+                        .join('')}
+                </div>
+            </article>
+        `;
+    }
+
+    if (['submitted', 'verified'].includes(business.credit_registration_status)) {
+        return `
+            <article class="panel owner-credit-panel h-100">
+                <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                    <div>
+                        <p class="section-kicker mb-2">Credit registration</p>
+                        <strong class="d-block mb-2">NIN-backed registration is in progress</strong>
+                        <p class="text-muted mb-0">The business has already entered the identity workflow for credit onboarding.</p>
+                    </div>
+                    <span class="pill-note ${business.credit_registration_status === 'verified' ? 'pill-note-success' : 'pill-note-muted'} align-self-start">${business.credit_registration_status_label}</span>
+                </div>
+                <div class="workspace-detail-grid">
+                    <div class="workspace-detail-item"><span>NIN</span><strong>${business.nin_number || 'Not submitted'}</strong></div>
+                    <div class="workspace-detail-item"><span>NIN status</span><strong>${business.nin_verification_status_label || 'Pending review'}</strong></div>
+                    <div class="workspace-detail-item"><span>Reference</span><strong>${business.credit_registration_reference || 'Pending generation'}</strong></div>
+                    <div class="workspace-detail-item"><span>Submitted</span><strong>${formatWorkspaceDate(business.credit_registration_submitted_at)}</strong></div>
+                </div>
+                <div class="feed-item mt-3">
+                    <strong class="d-block mb-2">Verification note</strong>
+                    <p class="mb-0 text-muted">${business.nin_verification_notes || 'Verification is underway.'}</p>
+                </div>
+            </article>
+        `;
+    }
+
+    return `
+        <article class="panel owner-credit-panel h-100">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                <div>
+                    <p class="section-kicker mb-2">Credit registration</p>
+                    <strong class="d-block mb-2">Submit the owner NIN for the next step</strong>
+                    <p class="text-muted mb-0">This business is ready for a NIN-backed credit registration. The NIN is used for the configured NIRA or NITA verification path.</p>
+                </div>
+                <span class="pill-note pill-note-success align-self-start">${business.credit_score || 0}/100 credit</span>
+            </div>
+            <form class="row g-3" data-credit-registration-form data-business-id="${business.id}">
+                <div class="col-md-6">
+                    <label class="form-label" for="credit_registration_nin">Owner NIN</label>
+                    <input class="form-control" id="credit_registration_nin" name="nin_number" type="text" maxlength="14" value="${business.nin_number || ''}" placeholder="CM1234567890AB" required>
+                </div>
+                <div class="col-md-6">
+                    <div class="workspace-detail-item h-100">
+                        <span>Why this appears now</span>
+                        <strong>${business.credit_readiness_score || 0}/100 readiness and ${business.receipt_trust_score || 0}/100 receipt trust</strong>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="form-status" data-credit-registration-message></div>
+                </div>
+                <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                    <button class="btn btn-warning btn-lg px-4" type="submit" data-credit-registration-submit>Submit NIN registration</button>
+                    <small class="text-muted">Only credit-ready live businesses can enter this registration step.</small>
+                </div>
+            </form>
+        </article>
+    `;
+};
+
+const bindOwnerBusinessForm = (session) => {
+    const ownerForm = workspaceContainer?.querySelector('[data-owner-business-form]');
+
+    if (!ownerForm || ownerForm.dataset.bound === 'true') {
+        return;
+    }
+
+    ownerForm.dataset.bound = 'true';
+    ownerForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(ownerForm);
+        const businessId = ownerForm.dataset.businessId;
+        const payload = {
+            business_name: String(formData.get('business_name') || '').trim(),
+            phone_number: String(formData.get('phone_number') || '').trim(),
+            mobile_money_number: String(formData.get('mobile_money_number') || '').trim(),
+            tin_number: String(formData.get('tin_number') || '').trim(),
+            district: String(formData.get('district') || '').trim(),
+            sector: String(formData.get('sector') || '').trim(),
+            location_description: String(formData.get('location_description') || '').trim(),
+            stock_focus: String(formData.get('stock_focus') || '').trim(),
+            monthly_revenue_band: String(formData.get('monthly_revenue_band') || '').trim(),
+            employee_count: String(formData.get('employee_count') || '1').trim(),
+            inventory_value_estimate: String(formData.get('inventory_value_estimate') || '0').trim(),
+            average_monthly_profit: String(formData.get('average_monthly_profit') || '0').trim(),
+            average_monthly_mobile_money: String(formData.get('average_monthly_mobile_money') || '0').trim(),
+            receipt_count: String(formData.get('receipt_count') || '0').trim(),
+            receipt_value_total: String(formData.get('receipt_value_total') || '0').trim(),
+            notes: String(formData.get('notes') || '').trim(),
+        };
+        const ownerSubmit = ownerForm.querySelector('[data-owner-business-submit]');
+
+        if (ownerSubmit) {
+            ownerSubmit.disabled = true;
+            ownerSubmit.textContent = 'Saving adjustments...';
+        }
+
+        try {
+            const result = await fetchJson(`/businesses/${businessId}/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+
+            const nextSession = { user: { ...session.user, business: result.business } };
+            storeSession(nextSession.user);
+            const refreshedBusinesses = await loadBusinesses();
+            renderWorkspace(nextSession, refreshedBusinesses);
+            showOwnerWorkspaceMessage('Business adjustments saved successfully.', 'success');
+        } catch (error) {
+            showOwnerWorkspaceMessage(error.message || 'Unable to save your business adjustments right now.', 'error');
+        } finally {
+            if (ownerSubmit) {
+                ownerSubmit.disabled = false;
+                ownerSubmit.textContent = 'Save adjustments';
+            }
+        }
+    });
+};
+
+const bindCreditRegistrationForm = (session) => {
+    const creditForm = document.querySelector('[data-credit-registration-form]');
+
+    if (!creditForm || creditForm.dataset.bound === 'true') {
+        return;
+    }
+
+    creditForm.dataset.bound = 'true';
+    creditForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(creditForm);
+        const businessId = creditForm.dataset.businessId;
+        const submitButton = creditForm.querySelector('[data-credit-registration-submit]');
+
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Submitting NIN...';
+        }
+
+        try {
+            const result = await fetchJson(`/businesses/${businessId}/credit-registration/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    nin_number: String(formData.get('nin_number') || '').trim(),
+                }),
+            });
+
+            const nextSession = { user: { ...session.user, business: result.business } };
+            storeSession(nextSession.user);
+            const refreshedBusinesses = await loadBusinesses();
+            renderWorkspace(nextSession, refreshedBusinesses);
+            renderCreditPage(nextSession, refreshedBusinesses);
+            showCreditRegistrationMessage(result.verification?.notes || 'Credit registration submitted.', 'success');
+        } catch (error) {
+            showCreditRegistrationMessage(error.message || 'Unable to submit the NIN registration right now.', 'error');
+        } finally {
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Submit NIN registration';
+            }
+        }
+    });
 };
 
 const fetchJson = async (path, options = {}) => {
@@ -490,7 +912,7 @@ const renderTopBusinesses = (businesses) => {
     }
 
     const strongest = [...businesses]
-        .sort((left, right) => (right.profile_score || 0) - (left.profile_score || 0))
+        .sort((left, right) => (right.credit_score || 0) - (left.credit_score || 0))
         .slice(0, 3);
 
     topBusinesses.innerHTML = strongest
@@ -499,8 +921,8 @@ const renderTopBusinesses = (businesses) => {
                 <strong>${business.business_name}</strong>
                 <div class="text-muted small mb-2">${business.owner_name} · ${business.district}</div>
                 <div class="feed-meta">
-                    <span>${business.profile_score}/100 ${business.profile_label}</span>
-                    <span>${business.account_mode}</span>
+                    <span>${business.credit_score || 0}/100 ${business.credit_label || 'Pending'}</span>
+                    <span>${formatRiskLabel(business.fraud_risk_level)}</span>
                 </div>
             </div>
         `)
@@ -546,13 +968,16 @@ const renderBusinessRows = (businesses) => {
                     <td>${business.sector}</td>
                     <td>${business.monthly_revenue_band || 'Pending capture'}</td>
                     <td>
-                        <div class="small fw-semibold mb-2">${business.profile_score}/100 · ${business.profile_label}</div>
+                        <div class="small fw-semibold mb-1">${business.profile_score}/100 · ${business.profile_label}</div>
+                        <div class="text-muted small mb-2">Credit ${business.credit_score || 0}/100 · ${business.credit_label || 'Pending'}</div>
                         <div class="progress score-progress">
-                            <div class="progress-bar" role="progressbar" style="width: ${business.profile_score}%" aria-valuenow="${business.profile_score}" aria-valuemin="0" aria-valuemax="100"></div>
+                            <div class="progress-bar" role="progressbar" style="width: ${business.credit_score || 0}%" aria-valuenow="${business.credit_score || 0}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
                     </td>
                     <td>
                         <span class="status-pill ${business.tax_lookup_status === 'ready_for_lookup' ? 'status-pill-watch' : business.tax_lookup_status === 'demo_bypass' ? 'status-pill-high' : 'status-pill-low'}">${business.tax_lookup_status_label}</span>
+                        <div class="text-muted small mt-2">${business.nin_verification_status_label || 'NIN not submitted'}</div>
+                        <div class="text-muted small">${formatRiskLabel(business.fraud_risk_level)}</div>
                     </td>
                 </tr>
             `;
@@ -566,10 +991,34 @@ const loadBusinesses = async () => {
     try {
         const payload = await fetchJson('/businesses/');
         const businesses = payload.results || [];
+        const scope = payload.scope || 'official';
 
         renderBusinessRows(businesses);
         renderTopBusinesses(businesses);
-        setStatusChip(businessSyncStatus, 'Live registry ready', 'success');
+
+        if (scope === 'owned' && businesses.length === 0) {
+            if (businessList) {
+                businessList.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-muted">No linked business profile is available for this owner account yet.</td>
+                    </tr>
+                `;
+            }
+
+            if (topBusinesses) {
+                topBusinesses.textContent = 'No linked business profile is available for this owner account yet.';
+            }
+
+            setStatusChip(businessSyncStatus, 'Owner profile pending', 'danger');
+            updateBusinessEmptyState(0);
+            return businesses;
+        }
+
+        setStatusChip(
+            businessSyncStatus,
+            scope === 'owned' ? 'Business profile ready' : 'Live registry ready',
+            'success',
+        );
 
         return businesses;
     } catch (error) {
@@ -637,7 +1086,7 @@ const renderRecentRegistrations = (results) => {
                 <div class="text-muted small">${business.owner_name} • ${business.sector}</div>
                 <div class="feed-meta">
                     <span>${business.district}</span>
-                    <span>${business.tax_lookup_status.replace(/_/g, ' ')}</span>
+                    <span>${business.credit_score || 0}/100 credit</span>
                 </div>
             </div>
         `)
@@ -667,6 +1116,264 @@ const loadServiceStatus = async () => {
         updateServiceStatus('Service ready', 'success');
     } catch (error) {
         updateServiceStatus('Service unavailable', 'danger');
+    }
+};
+
+const buildGovernmentAnalytics = (businesses) => {
+    const readyBusinesses = businesses.filter((business) => business.is_credit_ready);
+    const verifiedNin = businesses.filter((business) => business.nin_verification_status === 'verified');
+    const pendingNin = businesses.filter((business) => business.nin_verification_status === 'pending');
+    const highRisk = businesses.filter((business) => business.fraud_risk_level === 'high');
+    const watchRisk = businesses.filter((business) => business.fraud_risk_level === 'watch');
+    const submittedCredit = businesses.filter((business) => ['submitted', 'verified'].includes(business.credit_registration_status));
+    const avgCredit = averageRounded(businesses.map((business) => business.credit_score || 0));
+    const avgReceiptTrust = averageRounded(businesses.map((business) => business.receipt_trust_score || 0));
+    const avgConsistency = averageRounded(businesses.map((business) => business.consistency_score || 0));
+    const avgMobileMoneyCoverage = averageRounded(
+        businesses.map((business) => {
+            const revenueMidpoint = toNumber(business.revenue_band_midpoint);
+
+            if (revenueMidpoint <= 0) {
+                return 0;
+            }
+
+            return Math.min(100, Math.round((toNumber(business.average_monthly_mobile_money) / revenueMidpoint) * 100));
+        }),
+    );
+
+    const categories = [
+        {
+            title: 'Formalization pipeline',
+            detail: 'Which businesses are closest to moving into formal credit and compliance workflows.',
+            metrics: [
+                { label: 'Credit-ready businesses', value: `${readyBusinesses.length}/${businesses.length || 0}` },
+                { label: 'Submitted registrations', value: String(submittedCredit.length) },
+                { label: 'TIN-ready businesses', value: String(businesses.filter((business) => business.tax_lookup_status === 'ready_for_lookup').length) },
+            ],
+        },
+        {
+            title: 'Identity assurance',
+            detail: 'How many businesses have enough owner identity evidence for government-backed finance programmes.',
+            metrics: [
+                { label: 'Verified NIN', value: `${verifiedNin.length}/${businesses.length || 0}` },
+                { label: 'Pending NIN checks', value: String(pendingNin.length) },
+                { label: 'Ready but no NIN', value: String(readyBusinesses.filter((business) => !business.nin_number).length) },
+            ],
+        },
+        {
+            title: 'Fraud and data integrity',
+            detail: 'Signals that suggest follow-up verification before public support or credit is approved.',
+            metrics: [
+                { label: 'High-risk businesses', value: String(highRisk.length) },
+                { label: 'Watch-list businesses', value: String(watchRisk.length) },
+                { label: 'Average consistency', value: `${avgConsistency}/100` },
+            ],
+        },
+        {
+            title: 'Receipt discipline',
+            detail: 'Receipt coverage helps officials judge whether business records are trustworthy enough for lending and grants.',
+            metrics: [
+                { label: 'Average receipt trust', value: `${avgReceiptTrust}/100` },
+                { label: '10+ receipts logged', value: String(businesses.filter((business) => (business.receipt_count || 0) >= 10).length) },
+                { label: 'Low-receipt businesses', value: String(businesses.filter((business) => (business.receipt_count || 0) < 5).length) },
+            ],
+        },
+        {
+            title: 'Digital payments and tax',
+            detail: 'Useful for deciding where digital-finance and formal tax support should be targeted first.',
+            metrics: [
+                { label: 'Average credit score', value: `${avgCredit}/100` },
+                { label: 'Avg mobile-money coverage', value: `${avgMobileMoneyCoverage}%` },
+                { label: 'Tax-ready businesses', value: String(businesses.filter((business) => business.tax_lookup_status === 'ready_for_lookup').length) },
+            ],
+        },
+    ];
+
+    const districts = Object.entries(groupBusinessesByDistrict(businesses))
+        .map(([district, districtBusinesses]) => {
+            const districtReady = districtBusinesses.filter((business) => business.is_credit_ready).length;
+            const districtHighRisk = districtBusinesses.filter((business) => business.fraud_risk_level === 'high').length;
+            const districtVerifiedNin = districtBusinesses.filter((business) => business.nin_verification_status === 'verified').length;
+            const averageDistrictCredit = averageRounded(districtBusinesses.map((business) => business.credit_score || 0));
+            let priority = 'Maintain the current support level';
+
+            if (districtHighRisk >= 2) {
+                priority = 'Field verification and fraud review';
+            } else if (districtReady >= 2) {
+                priority = 'Open lender onboarding for ready businesses';
+            } else if (districtVerifiedNin < Math.ceil(districtBusinesses.length / 2)) {
+                priority = 'Push NIN capture and identity checks';
+            } else if (averageDistrictCredit < 65) {
+                priority = 'Bookkeeping and receipt support';
+            }
+
+            return {
+                district,
+                businesses: districtBusinesses.length,
+                averageCredit: averageDistrictCredit,
+                creditReady: districtReady,
+                priority,
+            };
+        })
+        .sort((left, right) => right.averageCredit - left.averageCredit);
+
+    const interventions = [
+        {
+            title: 'Focus NIN capture on credit-ready businesses',
+            detail: `${readyBusinesses.filter((business) => !business.nin_number).length} ready businesses still need a NIN-backed registration step before identity assurance is complete.`,
+        },
+        {
+            title: 'Target districts with fraud-watch concentration',
+            detail: `${highRisk.length + watchRisk.length} businesses are on a fraud watch path because their stock, profit, mobile money, and receipt figures do not align closely enough.`,
+        },
+        {
+            title: 'Expand receipt digitization support',
+            detail: `${businesses.filter((business) => (business.receipt_count || 0) < 5).length} businesses still lack enough receipt evidence to support trustworthy lending or grant decisions.`,
+        },
+    ];
+
+    return { categories, districts, interventions };
+};
+
+const renderCreditPage = (session, businesses) => {
+    if (!creditLiveMetrics && !creditShortlist && !creditRegistrationContent) {
+        return;
+    }
+
+    if (!session?.user) {
+        if (creditLiveMetrics) {
+            creditLiveMetrics.innerHTML = '<div class="col-12 text-muted">Sign in to load live credit analytics.</div>';
+        }
+
+        if (creditShortlist) {
+            creditShortlist.textContent = 'Sign in to load the live credit shortlist.';
+        }
+
+        if (creditRegistrationContent) {
+            creditRegistrationContent.innerHTML = '<p class="mb-0 text-muted">Sign in as a business owner to open the NIN-backed credit registration step when a business becomes ready.</p>';
+        }
+
+        return;
+    }
+
+    if (creditLiveMetrics) {
+        creditLiveMetrics.innerHTML = renderWorkspaceMetricTiles([
+            { label: 'Average credit score', value: `${averageRounded(businesses.map((business) => business.credit_score || 0))}/100`, detail: 'Live score after receipts, fraud checks, and identity trust are considered.' },
+            { label: 'Credit-ready businesses', value: String(businesses.filter((business) => business.is_credit_ready).length), detail: 'Operationally ready to move into NIN-backed registration.' },
+            { label: 'Verified NIN', value: String(businesses.filter((business) => business.nin_verification_status === 'verified').length), detail: 'Businesses whose owners have passed identity verification.' },
+            { label: 'Fraud watch', value: String(businesses.filter((business) => business.fraud_risk_level !== 'low').length), detail: 'Businesses that need closer verification before a facility is offered.' },
+        ]);
+    }
+
+    if (creditShortlist) {
+        if (!Array.isArray(businesses) || businesses.length === 0) {
+            creditShortlist.textContent = 'No live businesses are available for credit analysis yet.';
+        } else {
+            creditShortlist.innerHTML = [...businesses]
+                .sort((left, right) => (right.credit_score || 0) - (left.credit_score || 0))
+                .slice(0, 4)
+                .map((business) => `
+                    <div class="feed-item">
+                        <strong class="d-block mb-2">${business.business_name}</strong>
+                        <div class="text-muted small mb-2">${business.owner_name} · ${business.district}</div>
+                        <div class="d-flex justify-content-between text-muted small mb-1"><span>Credit</span><span>${business.credit_score || 0}/100</span></div>
+                        <div class="d-flex justify-content-between text-muted small mb-1"><span>Receipts</span><span>${business.receipt_count || 0}</span></div>
+                        <div class="d-flex justify-content-between text-muted small"><span>Fraud watch</span><span>${formatRiskLabel(business.fraud_risk_level)}</span></div>
+                    </div>
+                `)
+                .join('');
+        }
+    }
+
+    if (creditRegistrationContent) {
+        if (session.user.role === 'business_owner') {
+            creditRegistrationContent.innerHTML = buildCreditRegistrationPanel(getOwnerBusiness(session.user, businesses));
+            bindCreditRegistrationForm(session);
+        } else {
+            creditRegistrationContent.innerHTML = '<p class="mb-0 text-muted">Signed-in officials can review credit analytics here. The NIN registration form only appears for the linked business owner account.</p>';
+        }
+    }
+};
+
+const renderGovernmentPage = (session, businesses) => {
+    if (!governmentCategories && !governmentDistrictTable && !governmentInterventions) {
+        return;
+    }
+
+    if (!session?.user || !officialRoles.has(session.user.role)) {
+        if (governmentCategories) {
+            governmentCategories.textContent = 'Sign in with an official account to load the live government categories.';
+        }
+
+        if (governmentDistrictCount) {
+            governmentDistrictCount.textContent = 'Official access required';
+        }
+
+        if (governmentDistrictTable) {
+            governmentDistrictTable.innerHTML = `
+                <tr>
+                    <td colspan="5" class="text-muted">Official sign-in is required to view the live district analytics.</td>
+                </tr>
+            `;
+        }
+
+        if (governmentInterventions) {
+            governmentInterventions.innerHTML = '<div class="col-12 text-muted">Official sign-in is required to view live intervention guidance.</div>';
+        }
+
+        return;
+    }
+
+    const analytics = buildGovernmentAnalytics(businesses);
+
+    if (governmentCategories) {
+        governmentCategories.innerHTML = analytics.categories
+            .map((category) => `
+                <div class="feed-item">
+                    <strong class="d-block mb-2">${category.title}</strong>
+                    <p class="text-muted mb-3">${category.detail}</p>
+                    ${category.metrics
+                        .map((metric) => `
+                            <div class="d-flex justify-content-between text-muted small mb-2">
+                                <span>${metric.label}</span>
+                                <span>${metric.value}</span>
+                            </div>
+                        `)
+                        .join('')}
+                </div>
+            `)
+            .join('');
+    }
+
+    if (governmentDistrictCount) {
+        governmentDistrictCount.textContent = `${analytics.districts.length} districts live`;
+    }
+
+    if (governmentDistrictTable) {
+        governmentDistrictTable.innerHTML = analytics.districts
+            .map((district) => `
+                <tr>
+                    <td>${district.district}</td>
+                    <td>${district.businesses}</td>
+                    <td>${district.averageCredit}/100</td>
+                    <td>${district.creditReady}</td>
+                    <td>${district.priority}</td>
+                </tr>
+            `)
+            .join('');
+    }
+
+    if (governmentInterventions) {
+        governmentInterventions.innerHTML = analytics.interventions
+            .map((intervention) => `
+                <div class="col-md-4">
+                    <div class="business-card h-100">
+                        <strong class="d-block mb-2">${intervention.title}</strong>
+                        <p class="mb-0 text-muted">${intervention.detail}</p>
+                    </div>
+                </div>
+            `)
+            .join('');
     }
 };
 
@@ -704,6 +1411,7 @@ const renderWorkspace = (session, businesses) => {
     }
 
     const blueprint = roleBlueprints[user.role] || roleBlueprints.field_agent;
+    const isOfficial = officialRoles.has(user.role);
     const totalBusinesses = businesses.length;
     const tinReadyCount = businesses.filter((business) => business.tax_lookup_status === 'ready_for_lookup').length;
     const demoCount = businesses.filter((business) => business.is_demo_account).length;
@@ -733,59 +1441,262 @@ const renderWorkspace = (session, businesses) => {
         ],
     };
 
-    if (workspaceTitle) {
-        workspaceTitle.textContent = blueprint.workspaceTitle;
-    }
+    const renderOfficialWorkspace = () => {
+        if (workspaceTitle) {
+            workspaceTitle.textContent = blueprint.workspaceTitle;
+        }
 
-    if (workspaceDescription) {
-        workspaceDescription.textContent = blueprint.workspaceDescription;
-    }
+        if (workspaceDescription) {
+            workspaceDescription.textContent = blueprint.workspaceDescription;
+        }
+
+        if (roleMetrics) {
+            roleMetrics.innerHTML = renderWorkspaceMetricTiles(metricsByRole[user.role] || metricsByRole.field_agent);
+        }
+
+        if (roleActions) {
+            const actionCards = blueprint.actions
+                .map((action) => `
+                    <div class="col-md-6">
+                        <div class="business-card action-card d-flex flex-column">
+                            <strong class="d-block mb-2">${action.title}</strong>
+                            <p class="mb-3 text-muted">${action.detail}</p>
+                            <a class="btn btn-outline-success btn-sm align-self-start" href="${action.href}">${action.cta}</a>
+                        </div>
+                    </div>
+                `)
+                .join('');
+
+            roleActions.innerHTML = `${actionCards}${renderOfficialBusinessDetailPanel(businesses)}`;
+        }
+
+        if (currentUserCard) {
+            currentUserCard.innerHTML = `
+                <strong class="d-block mb-2">${user.display_name}</strong>
+                <div class="small mb-1"><strong>Username:</strong> ${user.username}</div>
+                <div class="small mb-1"><strong>Role:</strong> ${user.role_label}</div>
+                <div class="small mb-1"><strong>TIN required:</strong> ${user.requires_tin ? 'Yes' : 'No'}</div>
+                <div class="small mb-3"><strong>Visible businesses:</strong> ${totalBusinesses}</div>
+                <a class="btn btn-outline-success btn-sm" href="?page=${user.recommended_page}">Open recommended page</a>
+            `;
+        }
+
+        if (roleNotes) {
+            roleNotes.innerHTML = blueprint.notes
+                .map((note) => `<div class="feed-item"><p class="mb-0 text-muted">${note}</p></div>`)
+                .join('');
+        }
+    };
+
+    const renderBusinessOwnerWorkspace = () => {
+        const business = getOwnerBusiness(user, businesses);
+
+        if (workspaceTitle) {
+            workspaceTitle.textContent = blueprint.workspaceTitle;
+        }
+
+        if (workspaceDescription) {
+            workspaceDescription.textContent = business
+                ? `Track ${business.business_name}, review profile quality, and save changes that remain attached to your account for the next session.`
+                : blueprint.workspaceDescription;
+        }
+
+        if (!business) {
+            if (roleMetrics) {
+                roleMetrics.innerHTML = renderWorkspaceMetricTiles([
+                    { label: 'Linked business', value: '0', detail: 'No business profile is attached to this owner account yet.' },
+                    { label: 'Profile score', value: '0/100', detail: 'A score appears once a business record is linked.' },
+                    { label: 'Tax status', value: 'Pending', detail: 'A business profile is required before tax readiness can be tracked.' },
+                    { label: 'Saved updates', value: '0', detail: 'Owner adjustments will appear once a linked profile exists.' },
+                ]);
+            }
+
+            if (roleActions) {
+                roleActions.innerHTML = `
+                    <div class="col-12">
+                        <article class="panel owner-edit-panel">
+                            <p class="section-kicker mb-2">Owner setup required</p>
+                            <strong class="d-block mb-2">No linked business profile yet</strong>
+                            <p class="text-muted mb-0">This business-owner account is signed in correctly, but no business record is attached yet. Ask the programme team to link the account or create the owner through the registration flow.</p>
+                        </article>
+                    </div>
+                `;
+            }
+
+            if (currentUserCard) {
+                currentUserCard.innerHTML = `
+                    <strong class="d-block mb-2">${user.display_name}</strong>
+                    <div class="small mb-1"><strong>Username:</strong> ${user.username}</div>
+                    <div class="small mb-1"><strong>Role:</strong> ${user.role_label}</div>
+                    <div class="small mb-3"><strong>Linked business:</strong> Not assigned</div>
+                    <a class="btn btn-outline-success btn-sm" href="?page=login#register-account">Create owner-linked profile</a>
+                `;
+            }
+
+            if (roleNotes) {
+                roleNotes.innerHTML = blueprint.notes
+                    .map((note) => `<div class="feed-item"><p class="mb-0 text-muted">${note}</p></div>`)
+                    .join('');
+            }
+
+            return;
+        }
+
+        if (roleMetrics) {
+            roleMetrics.innerHTML = renderWorkspaceMetricTiles([
+                { label: 'Profile score', value: `${business.profile_score}/100`, detail: business.profile_label },
+                { label: 'Credit score', value: `${business.credit_score || 0}/100`, detail: business.credit_label || 'Pending review' },
+                { label: 'Fraud watch', value: formatRiskLabel(business.fraud_risk_level), detail: `${business.consistency_score || 0}/100 consistency score` },
+                { label: 'Receipt trust', value: `${business.receipt_trust_score || 0}/100`, detail: `${business.receipt_count || 0} receipts worth ${formatCurrencyUGX(business.receipt_value_total)}` },
+            ]);
+        }
+
+        if (roleActions) {
+            roleActions.innerHTML = `
+                <div class="col-12">
+                    <article class="business-card owner-overview-card h-100">
+                        <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
+                            <div>
+                                <p class="section-kicker mb-2">My business snapshot</p>
+                                <strong class="d-block mb-2">${business.business_name}</strong>
+                                <p class="text-muted mb-0">${business.owner_name} · ${business.sector} · ${business.district}</p>
+                            </div>
+                            <span class="pill-note ${business.profile_score >= 75 ? 'pill-note-success' : 'pill-note-muted'} align-self-start">${business.profile_label}</span>
+                        </div>
+                        <div class="workspace-detail-grid owner-summary-grid">
+                            <div class="workspace-detail-item"><span>Phone</span><strong>${business.phone_number || 'Not provided'}</strong></div>
+                            <div class="workspace-detail-item"><span>Mobile money</span><strong>${business.mobile_money_number || 'Not provided'}</strong></div>
+                            <div class="workspace-detail-item"><span>TIN</span><strong>${business.tin_number || 'Not provided'}</strong></div>
+                            <div class="workspace-detail-item"><span>NIN status</span><strong>${business.nin_verification_status_label || 'Not submitted'}</strong></div>
+                            <div class="workspace-detail-item"><span>Employees</span><strong>${business.employee_count || 1}</strong></div>
+                            <div class="workspace-detail-item"><span>Credit score</span><strong>${business.credit_score || 0}/100</strong></div>
+                            <div class="workspace-detail-item workspace-detail-item-wide"><span>Location</span><strong>${business.location_description || 'No location details on file yet.'}</strong></div>
+                            <div class="workspace-detail-item workspace-detail-item-wide"><span>Stock focus</span><strong>${business.stock_focus || 'No stock focus recorded yet.'}</strong></div>
+                        </div>
+                    </article>
+                </div>
+                <div class="col-12">
+                    <article class="panel owner-edit-panel h-100">
+                        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                            <div>
+                                <p class="section-kicker mb-2">Owner adjustments</p>
+                                <strong class="d-block mb-2">Update the linked business profile</strong>
+                                <p class="text-muted mb-0">Saved changes persist to your business account so the next sign-in starts with the latest data.</p>
+                            </div>
+                            <span class="pill-note pill-note-muted align-self-start">Saved to account</span>
+                        </div>
+                        <form class="row g-3" data-owner-business-form data-business-id="${business.id}">
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_business_name">Business name</label>
+                                <input class="form-control" id="owner_business_name" name="business_name" type="text" value="${business.business_name || ''}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_phone_number">Phone number</label>
+                                <input class="form-control" id="owner_phone_number" name="phone_number" type="text" value="${business.phone_number || ''}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_mobile_money_number">Mobile money number</label>
+                                <input class="form-control" id="owner_mobile_money_number" name="mobile_money_number" type="text" value="${business.mobile_money_number || ''}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_tin_number">TIN number</label>
+                                <input class="form-control" id="owner_tin_number" name="tin_number" type="text" value="${business.tin_number || ''}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_district">District</label>
+                                <input class="form-control" id="owner_district" name="district" type="text" value="${business.district || ''}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_sector">Business sector</label>
+                                <input class="form-control" id="owner_sector" name="sector" type="text" value="${business.sector || ''}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_monthly_revenue_band">Monthly revenue band</label>
+                                <input class="form-control" id="owner_monthly_revenue_band" name="monthly_revenue_band" type="text" value="${business.monthly_revenue_band || ''}" placeholder="UGX 2M - 6M">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_employee_count">Employee count</label>
+                                <input class="form-control" id="owner_employee_count" name="employee_count" type="number" min="1" value="${business.employee_count || 1}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_inventory_value_estimate">Inventory value estimate (UGX)</label>
+                                <input class="form-control" id="owner_inventory_value_estimate" name="inventory_value_estimate" type="number" min="0" step="0.01" value="${business.inventory_value_estimate || 0}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_average_monthly_profit">Average monthly profit (UGX)</label>
+                                <input class="form-control" id="owner_average_monthly_profit" name="average_monthly_profit" type="number" min="0" step="0.01" value="${business.average_monthly_profit || 0}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_average_monthly_mobile_money">Average monthly mobile money (UGX)</label>
+                                <input class="form-control" id="owner_average_monthly_mobile_money" name="average_monthly_mobile_money" type="number" min="0" step="0.01" value="${business.average_monthly_mobile_money || 0}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_receipt_count">Receipt count</label>
+                                <input class="form-control" id="owner_receipt_count" name="receipt_count" type="number" min="0" value="${business.receipt_count || 0}">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="owner_receipt_value_total">Receipt value total (UGX)</label>
+                                <input class="form-control" id="owner_receipt_value_total" name="receipt_value_total" type="number" min="0" step="0.01" value="${business.receipt_value_total || 0}">
+                                <div class="form-text">These fields drive the fraud checks and lift the credit percentage when the evidence is internally consistent.</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="owner_location_description">Location description</label>
+                                <input class="form-control" id="owner_location_description" name="location_description" type="text" value="${business.location_description || ''}" placeholder="Trading centre or market location">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="owner_stock_focus">Stock focus</label>
+                                <input class="form-control" id="owner_stock_focus" name="stock_focus" type="text" value="${business.stock_focus || ''}" placeholder="Fast-moving goods, groceries, farm supplies">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="owner_notes">Operating notes</label>
+                                <textarea class="form-control" id="owner_notes" name="notes" rows="3" placeholder="Add useful operational notes for your next session.">${business.notes || ''}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-status" data-owner-business-message></div>
+                            </div>
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                                <button class="btn btn-warning btn-lg px-4" type="submit" data-owner-business-submit>Save adjustments</button>
+                                <small class="text-muted">These changes stay attached to your business profile after logout and appear again the next time you sign in.</small>
+                            </div>
+                        </form>
+                    </article>
+                </div>
+                <div class="col-12">
+                    ${buildCreditRegistrationPanel(business)}
+                </div>
+            `;
+        }
+
+        if (currentUserCard) {
+            currentUserCard.innerHTML = `
+                <strong class="d-block mb-2">${user.display_name}</strong>
+                <div class="small mb-1"><strong>Username:</strong> ${user.username}</div>
+                <div class="small mb-1"><strong>Role:</strong> ${user.role_label}</div>
+                <div class="small mb-1"><strong>Linked business:</strong> ${business.business_name}</div>
+                <div class="small mb-1"><strong>Credit score:</strong> ${business.credit_score || 0}/100</div>
+                <div class="small mb-3"><strong>Last saved:</strong> ${formatWorkspaceDate(business.updated_at)}</div>
+                <a class="btn btn-outline-success btn-sm" href="?page=businesses">View my business profile</a>
+            `;
+        }
+
+        if (roleNotes) {
+            roleNotes.innerHTML = buildOwnerGuidance(business)
+                .map((note) => `<div class="feed-item"><p class="mb-0 text-muted">${note}</p></div>`)
+                .join('');
+        }
+
+        bindOwnerBusinessForm(session);
+        bindCreditRegistrationForm(session);
+    };
 
     setStatusChip(authSessionStatus, 'Signed in', 'success');
 
-    if (roleMetrics) {
-        roleMetrics.innerHTML = metricsByRole[user.role]
-            .map((metric) => `
-                <div class="col-sm-6 col-xl-3">
-                    <div class="metric-tile h-100">
-                        <span class="section-kicker mb-2">${metric.label}</span>
-                        <strong>${metric.value}</strong>
-                        <p class="text-muted mb-0">${metric.detail}</p>
-                    </div>
-                </div>
-            `)
-            .join('');
+    if (isOfficial) {
+        renderOfficialWorkspace();
+        return;
     }
 
-    if (roleActions) {
-        roleActions.innerHTML = blueprint.actions
-            .map((action) => `
-                <div class="col-md-6">
-                    <div class="business-card action-card d-flex flex-column">
-                        <strong class="d-block mb-2">${action.title}</strong>
-                        <p class="mb-3 text-muted">${action.detail}</p>
-                        <a class="btn btn-outline-success btn-sm align-self-start" href="${action.href}">${action.cta}</a>
-                    </div>
-                </div>
-            `)
-            .join('');
-    }
-
-    if (currentUserCard) {
-        currentUserCard.innerHTML = `
-            <strong class="d-block mb-2">${user.display_name}</strong>
-            <div class="small mb-1"><strong>Username:</strong> ${user.username}</div>
-            <div class="small mb-1"><strong>Role:</strong> ${user.role_label}</div>
-            <div class="small mb-3"><strong>TIN required:</strong> ${user.requires_tin ? 'Yes' : 'No'}</div>
-            <a class="btn btn-outline-success btn-sm" href="?page=${user.recommended_page}">Open recommended page</a>
-        `;
-    }
-
-    if (roleNotes) {
-        roleNotes.innerHTML = blueprint.notes
-            .map((note) => `<div class="feed-item"><p class="mb-0 text-muted">${note}</p></div>`)
-            .join('');
-    }
+    renderBusinessOwnerWorkspace();
 };
 
 const showLoginMessage = (message, tone) => {
@@ -834,6 +1745,11 @@ if (registrationForm) {
             monthly_revenue_band: formData.get('monthly_revenue_band'),
             stock_focus: formData.get('stock_focus'),
             employee_count: formData.get('employee_count'),
+            inventory_value_estimate: formData.get('inventory_value_estimate'),
+            average_monthly_profit: formData.get('average_monthly_profit'),
+            average_monthly_mobile_money: formData.get('average_monthly_mobile_money'),
+            receipt_count: formData.get('receipt_count'),
+            receipt_value_total: formData.get('receipt_value_total'),
             location_description: formData.get('location_description'),
             notes: formData.get('notes'),
             is_demo_account: Boolean(formData.get('is_demo_account')),
@@ -947,6 +1863,22 @@ if (registerForm) {
             username: String(formData.get('username') || '').trim(),
             password: String(formData.get('password') || ''),
             confirm_password: String(formData.get('confirm_password') || ''),
+            business_name: String(formData.get('business_name') || '').trim(),
+            phone_number: String(formData.get('phone_number') || '').trim(),
+            mobile_money_number: String(formData.get('mobile_money_number') || '').trim(),
+            tin_number: String(formData.get('tin_number') || '').trim(),
+            district: String(formData.get('district') || '').trim(),
+            sector: String(formData.get('sector') || '').trim(),
+            monthly_revenue_band: String(formData.get('monthly_revenue_band') || '').trim(),
+            employee_count: String(formData.get('employee_count') || '1').trim(),
+            inventory_value_estimate: String(formData.get('inventory_value_estimate') || '0').trim(),
+            average_monthly_profit: String(formData.get('average_monthly_profit') || '0').trim(),
+            average_monthly_mobile_money: String(formData.get('average_monthly_mobile_money') || '0').trim(),
+            receipt_count: String(formData.get('receipt_count') || '0').trim(),
+            receipt_value_total: String(formData.get('receipt_value_total') || '0').trim(),
+            stock_focus: String(formData.get('stock_focus') || '').trim(),
+            location_description: String(formData.get('location_description') || '').trim(),
+            notes: String(formData.get('notes') || '').trim(),
         };
 
         if (registerSubmit) {
@@ -965,7 +1897,7 @@ if (registerForm) {
 
             storeSession(result.user);
             updateAuthNavigation(result);
-            showRegisterMessage(`Account created for ${result.user.display_name}. Redirecting to the workspace...`, 'success');
+            showRegisterMessage(`Business owner account created for ${result.user.display_name}. Redirecting to the workspace...`, 'success');
             registerForm.reset();
             window.location.href = '?page=workspace';
         } catch (error) {
@@ -1009,6 +1941,11 @@ const initializeApp = async () => {
         return;
     }
 
+    if (session?.user?.role === 'business_owner' && currentPage === 'registration') {
+        window.location.replace('?page=workspace');
+        return;
+    }
+
     if (!session?.user && currentPage === 'dashboard') {
         renderGuestAccessWall();
         document.body.classList.remove('auth-pending');
@@ -1021,11 +1958,24 @@ const initializeApp = async () => {
 
     initializeCharts();
 
-    const businesses = businessList || workspaceContainer ? await loadBusinesses() : [];
+    const shouldLoadBusinesses = Boolean(
+        businessList
+        || workspaceContainer
+        || creditLiveMetrics
+        || creditShortlist
+        || creditRegistrationContent
+        || governmentCategories
+        || governmentDistrictTable
+        || governmentInterventions,
+    );
+    const businesses = shouldLoadBusinesses ? await loadBusinesses() : [];
 
     if (workspaceContainer) {
         renderWorkspace(session, businesses);
     }
+
+    renderCreditPage(session, businesses);
+    renderGovernmentPage(session, businesses);
 
     document.body.classList.remove('auth-pending');
 };

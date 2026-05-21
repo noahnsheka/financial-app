@@ -68,6 +68,30 @@
                     <input class="form-control" id="employee_count" name="employee_count" type="number" min="1" value="1">
                 </div>
                 <div class="col-12">
+                    <hr class="my-1">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="inventory_value_estimate">Inventory value estimate (UGX)</label>
+                    <input class="form-control" id="inventory_value_estimate" name="inventory_value_estimate" type="number" min="0" step="0.01" placeholder="2500000">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="average_monthly_profit">Average monthly profit (UGX)</label>
+                    <input class="form-control" id="average_monthly_profit" name="average_monthly_profit" type="number" min="0" step="0.01" placeholder="680000">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="average_monthly_mobile_money">Average monthly mobile money (UGX)</label>
+                    <input class="form-control" id="average_monthly_mobile_money" name="average_monthly_mobile_money" type="number" min="0" step="0.01" placeholder="2400000">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="receipt_count">Receipt count</label>
+                    <input class="form-control" id="receipt_count" name="receipt_count" type="number" min="0" value="0">
+                </div>
+                <div class="col-12">
+                    <label class="form-label" for="receipt_value_total">Receipt value total (UGX)</label>
+                    <input class="form-control" id="receipt_value_total" name="receipt_value_total" type="number" min="0" step="0.01" placeholder="1800000">
+                    <div class="form-text">Receipts, profit, stock value, and mobile money totals now feed the fraud checks and credit-readiness percentage.</div>
+                </div>
+                <div class="col-12">
                     <label class="form-label" for="location_description">Location description</label>
                     <input class="form-control" id="location_description" name="location_description" type="text" placeholder="Trading center, market lane, or village cluster">
                 </div>
@@ -97,13 +121,30 @@
 
     <div class="col-lg-4">
         <article class="panel mb-4">
-            <p class="section-kicker mb-2">TIN strategy</p>
-            <h2 class="h4 mb-4">Keep the tax lookup path open</h2>
+            <p class="section-kicker mb-2">Verification strategy</p>
+            <h2 class="h4 mb-4">Keep the tax and identity lookup path open</h2>
             <ul class="list-check compact-list mb-0">
                 <li>Allow TIN collection now, even if live verification is added later.</li>
-                <li>Use demo mode whenever you need a clean showcase account without waiting for tax validation.</li>
-                <li>Prioritize valid TINs for businesses that are most likely to move into formal loan programs first.</li>
+                <li>When a business becomes credit ready, capture the owner NIN for the NIRA or NITA verification flow.</li>
+                <li>Use demo mode whenever you need a clean showcase account without waiting for tax or identity validation.</li>
             </ul>
+        </article>
+
+        <article class="panel mb-4">
+            <p class="section-kicker mb-2">Fraud control</p>
+            <h2 class="h4 mb-4">What the scoring engine cross-checks</h2>
+            <div class="business-card mb-3">
+                <strong class="d-block mb-2">Stock versus profit</strong>
+                <p class="mb-0 text-muted">Inventory values that are far from reported monthly profit reduce the readiness score and raise a fraud watch signal.</p>
+            </div>
+            <div class="business-card mb-3">
+                <strong class="d-block mb-2">Mobile money versus revenue</strong>
+                <p class="mb-0 text-muted">The engine compares declared digital inflows against the revenue band to flag unlikely reporting patterns.</p>
+            </div>
+            <div class="business-card">
+                <strong class="d-block mb-2">Receipt trust</strong>
+                <p class="mb-0 text-muted">More receipts and higher receipt coverage increase confidence in the record and improve the credit percentage.</p>
+            </div>
         </article>
 
         <article class="panel mb-4">

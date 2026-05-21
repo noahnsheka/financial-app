@@ -1,0 +1,2 @@
+Watching for file changes with StatReloader
+C:\Users\noahs\OneDrive\Desktop\Noahs projects\financial app\backend\registry\models.py changed, reloading.

@@ -28,6 +28,11 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-ledgerlift-mvp
 DEBUG = get_env_bool('DJANGO_DEBUG', not IS_RENDER)
 LEDGER_CHAIN_SECRET = os.environ.get('LEDGER_CHAIN_SECRET', SECRET_KEY)
 LEDGER_CHAIN_KEY_ID = os.environ.get('LEDGER_CHAIN_KEY_ID', 'application-secret')
+NIRA_API_BASE_URL = os.environ.get('NIRA_API_BASE_URL', '').strip()
+NIRA_API_KEY = os.environ.get('NIRA_API_KEY', '').strip()
+NITA_API_BASE_URL = os.environ.get('NITA_API_BASE_URL', '').strip()
+NITA_API_KEY = os.environ.get('NITA_API_KEY', '').strip()
+UGANDA_IDENTITY_API_TIMEOUT = int(os.environ.get('UGANDA_IDENTITY_API_TIMEOUT', '8'))
 
 ALLOWED_HOSTS = get_env_list('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost')
 

@@ -32,6 +32,13 @@ return [
             'role' => 'Field agent',
             'note' => 'Use this account to onboard shops without a live TIN in showcase mode.',
         ],
+        [
+            'displayName' => 'Paul Ssenfuka',
+            'username' => 'paul.owner',
+            'password' => 'OwnerDemo123!',
+            'role' => 'Business owner',
+            'note' => 'Use this account to review one linked business, monitor profile health, and save owner adjustments.',
+        ],
     ],
     'heroStats' => [
         [
@@ -192,43 +199,43 @@ return [
     ],
     'scoreBreakdown' => [
         [
-            'name' => 'Payment consistency',
+            'name' => 'Profit and stock consistency',
             'weight' => '35%',
-            'description' => 'Measures how stable daily inflows are across mobile money and repeat customer activity.',
+            'description' => 'Compares inventory values, declared profit, and business size so suspicious gaps reduce the credit percentage.',
         ],
         [
-            'name' => 'Stock discipline',
+            'name' => 'Receipt trust',
             'weight' => '25%',
-            'description' => 'Rewards predictable restocking behavior and flags recurring shortages that hurt turnover.',
+            'description' => 'Rewards businesses that can back their claims with more receipts and stronger receipt-value coverage.',
         ],
         [
-            'name' => 'Operating resilience',
+            'name' => 'Identity assurance',
             'weight' => '20%',
-            'description' => 'Looks at how a shop handles supplier payments, slow weeks, and category concentration risk.',
+            'description' => 'Tracks when a ready business has submitted a NIN and whether NIRA or NITA verification has cleared it.',
         ],
         [
             'name' => 'Record completeness',
             'weight' => '20%',
-            'description' => 'Checks whether sales, expenses, and inventory events are captured often enough to trust the score.',
+            'description' => 'Checks whether sales, location, stock, and digital payment details are complete enough to trust the credit model.',
         ],
     ],
     'loanPrograms' => [
         [
             'provider' => 'Growth Window',
             'size' => 'UGX 2M to 10M',
-            'requirement' => 'Score 70+, 90 days of clean records',
+            'requirement' => 'Credit score 70+, NIN submission, 90 days of consistent records',
             'status' => 'Open for pilot',
         ],
         [
             'provider' => 'Inventory Bridge',
             'size' => 'UGX 500k to 3M',
-            'requirement' => 'High stock turnover and low shrinkage',
+            'requirement' => 'Strong stock-profit alignment and receipt support',
             'status' => 'Partner review',
         ],
         [
             'provider' => 'Women in Trade Fund',
             'size' => 'UGX 1M to 6M',
-            'requirement' => 'Verified owner, score 68+, digital history',
+            'requirement' => 'Verified owner NIN, credit score 68+, strong digital history',
             'status' => 'Priority channel',
         ],
     ],

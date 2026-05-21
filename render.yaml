@@ -20,6 +20,16 @@ services:
         generateValue: true
       - key: LEDGER_CHAIN_KEY_ID
         value: render-primary
+      - key: NIRA_API_BASE_URL
+        value: ""
+      - key: NIRA_API_KEY
+        value: ""
+      - key: NITA_API_BASE_URL
+        value: ""
+      - key: NITA_API_KEY
+        value: ""
+      - key: UGANDA_IDENTITY_API_TIMEOUT
+        value: "8"
       - key: DJANGO_ALLOWED_HOSTS
         value: ledgerlift-uganda-api.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS

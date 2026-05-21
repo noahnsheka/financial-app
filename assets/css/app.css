@@ -664,6 +664,59 @@ h6,
     margin-top: auto;
 }
 
+.workspace-detail-card,
+.owner-overview-card,
+.owner-edit-panel {
+    border-top: 1px solid var(--line);
+}
+
+.workspace-business-detail {
+    padding: 1rem 0;
+    border-top: 1px solid var(--line);
+}
+
+.workspace-business-detail:first-of-type {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.workspace-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.9rem;
+}
+
+.workspace-detail-item {
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(31, 42, 24, 0.08);
+    padding: 0.85rem 0.95rem;
+}
+
+.workspace-detail-item span {
+    display: block;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 0.35rem;
+}
+
+.workspace-detail-item strong {
+    display: block;
+    color: var(--forest-deep);
+    font-size: 0.96rem;
+    line-height: 1.45;
+}
+
+.workspace-detail-item-wide {
+    grid-column: 1 / -1;
+}
+
+.owner-summary-grid .workspace-detail-item {
+    background: rgba(245, 239, 204, 0.42);
+}
+
 .feed-item {
     border-radius: var(--radius-lg);
     border-width: 1px 0 0;

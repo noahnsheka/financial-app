@@ -47,16 +47,16 @@
             <p class="section-kicker mb-2">Readiness markers</p>
             <h2 class="h4 mb-4">What this MVP tracks per shop</h2>
             <div class="business-card mb-3">
-                <strong class="d-block mb-2">Profile score</strong>
-                <p class="mb-0 text-muted">A live completeness score built from mobile money capture, stock detail, location detail, and TIN readiness.</p>
+                <strong class="d-block mb-2">Profile and credit score</strong>
+                <p class="mb-0 text-muted">The registry now separates completeness from lender-facing credit percentage so officials can see who is documented and who is actually ready.</p>
             </div>
             <div class="business-card mb-3">
-                <strong class="d-block mb-2">Tax lookup status</strong>
-                <p class="mb-0 text-muted">Businesses with TIN data are marked as ready for future URA lookup, while demo accounts stay usable for showcase flows.</p>
+                <strong class="d-block mb-2">Identity and fraud watch</strong>
+                <p class="mb-0 text-muted">NIN verification state, receipt trust, and consistency checks help flag businesses that need extra review before finance is offered.</p>
             </div>
             <div class="business-card">
-                <strong class="d-block mb-2">Operating mode</strong>
-                <p class="mb-0 text-muted">The registry now distinguishes live businesses from demo accounts so the team can keep showcase and production-ready records separate.</p>
+                <strong class="d-block mb-2">Operating evidence</strong>
+                <p class="mb-0 text-muted">Receipt totals, profit reporting, stock values, and mobile money now feed the live risk and readiness analytics.</p>
             </div>
         </article>
 
