@@ -374,6 +374,8 @@ const setCurrentPage = (page) => {
     window.location.hash = `#${page}`;
 };
 
+const publicPages = new Set(['dashboard', 'login', 'credit', 'government']);
+
 const getSession = () => readStorage(storageKeys.session, null);
 const saveSession = (user) => writeStorage(storageKeys.session, { user });
 const clearSession = () => window.localStorage.removeItem(storageKeys.session);
@@ -385,7 +387,7 @@ const getDemoAccounts = () => [...demoData.demoAccounts, ...getStoredAccounts()]
 
 const guestGateCopy = {
     title: 'Sign in or create an account to unlock the showcase details',
-    description: 'LedgerLift Uganda helps teams onboard informal businesses, assess readiness for credit, and decide where support should go next. Detailed registry, credit, government, and workspace views stay locked until a user signs in.',
+    description: 'LedgerLift Uganda helps teams onboard informal businesses, assess readiness for credit, and decide where support should go next. Detailed registry, registration, and workspace views stay locked until a user signs in, while credit and government pages remain available for read-only walkthroughs.',
     highlights: [
         'Capture onboarding records with optional TIN detail for future verification.',
         'Open role-based workspaces for field, lender, and oversight stories.',
@@ -496,7 +498,7 @@ const guestAccessTemplate = () => `
             <article class='panel h-100'>
                 <p class='section-kicker mb-2'>Next step</p>
                 <h2 class='h4 mb-3'>Continue with account access</h2>
-                <p class='text-muted mb-4'>Only signed-in users can open the registry, credit insights, government view, registration tools, and the role workspace.</p>
+                <p class='text-muted mb-4'>Signed-in users can open the registry, registration tools, and the role workspace. Read-only credit and government pages stay available from the main navigation.</p>
                 <div class='d-grid gap-3'>
                     <a class='btn btn-warning btn-lg' href='#login'>Log in</a>
                     <a class='btn btn-outline-success btn-lg' href='#login'>Create account</a>
@@ -1629,6 +1631,27 @@ const bindShellActions = () => {
     });
 };
 
+const bindSidebarNavigation = () => {
+    const sidebarElement = document.querySelector('#demoSidebar');
+
+    if (!sidebarElement || !window.bootstrap?.Offcanvas) {
+        return;
+    }
+
+    const sidebar = bootstrap.Offcanvas.getOrCreateInstance(sidebarElement);
+
+    sidebarElement.querySelectorAll('[data-nav-link]').forEach((link) => {
+        if (link.dataset.sidebarBound === 'true') {
+            return;
+        }
+
+        link.dataset.sidebarBound = 'true';
+        link.addEventListener('click', () => {
+            sidebar.hide();
+        });
+    });
+};
+
 const destroyCharts = () => {
     chartInstances.forEach((chart) => chart.destroy());
     chartInstances = [];
@@ -1799,7 +1822,7 @@ const renderApp = () => {
     const businesses = getBusinesses();
     const root = document.querySelector('[data-page-root]');
 
-    if (!session?.user && page !== 'dashboard' && page !== 'login') {
+    if (!session?.user && !publicPages.has(page)) {
         setCurrentPage('dashboard');
         return;
     }
@@ -1807,6 +1830,7 @@ const renderApp = () => {
     updateHero(page, session);
     updateNavigation(page, session);
     bindShellActions();
+    bindSidebarNavigation();
 
     if (root) {
         root.innerHTML = !session?.user && page === 'dashboard'

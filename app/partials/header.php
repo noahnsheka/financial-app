@@ -91,7 +91,7 @@
                         <div class="nav-sidebar-list">
                             <?php foreach ($secondaryPages as $pageKey => $config): ?>
                                 <?php $href = $pageKey === 'dashboard' ? 'index.php' : '?page=' . rawurlencode($pageKey); ?>
-                                <a class="nav-sidebar-link <?php echo $activePage === $pageKey ? 'active' : ''; ?>" href="<?php echo e($href); ?>" data-bs-dismiss="offcanvas">
+                                <a class="nav-sidebar-link <?php echo $activePage === $pageKey ? 'active' : ''; ?>" href="<?php echo e($href); ?>">
                                     <span class="fw-semibold d-block"><?php echo e($config['label']); ?></span>
                                     <small class="text-muted"><?php echo e($config['eyebrow']); ?></small>
                                 </a>

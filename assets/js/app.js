@@ -229,7 +229,7 @@ const configuredApiBaseUrl = (appData.apiBaseUrl || 'http://127.0.0.1:8001/api')
 const localApiBaseUrl = 'http://127.0.0.1:8001/api';
 const apiBaseUrl = isLocalFrontend ? localApiBaseUrl : configuredApiBaseUrl;
 const authStorageKey = 'ledgerlift.auth.session';
-const publicPages = new Set(['dashboard', 'login']);
+const publicPages = new Set(['dashboard', 'login', 'credit', 'government']);
 
 const roleBlueprints = {
     government: {
@@ -275,7 +275,7 @@ const roleBlueprints = {
 
 const guestGateCopy = {
     title: 'Sign in or create an account to unlock the live platform',
-    description: 'LedgerLift Uganda helps teams onboard informal businesses, monitor credit readiness, and focus support where it matters most. Live registry views, score insights, and role workspaces stay locked until a user signs in.',
+    description: 'LedgerLift Uganda helps teams onboard informal businesses, monitor credit readiness, and focus support where it matters most. Live registry views, registration tools, and role workspaces stay locked until a user signs in.',
     highlights: [
         'Business onboarding with optional TIN capture for evolving tax verification.',
         'Credit-readiness signals built from payment history, stock detail, and record quality.',
@@ -397,7 +397,7 @@ const renderGuestAccessWall = () => {
                 <article class="panel h-100">
                     <p class="section-kicker mb-2">Next step</p>
                     <h2 class="h4 mb-3">Continue with account access</h2>
-                    <p class="text-muted mb-4">Only signed-in users can open the live registry, credit insights, government view, registration tools, and the role workspace.</p>
+                    <p class="text-muted mb-4">Signed-in users can open the live registry, registration tools, and the role workspace. Read-only credit and government pages stay available from the main navigation.</p>
                     <div class="d-grid gap-3">
                         <a class="btn btn-warning btn-lg" href="?page=login">Log in</a>
                         <a class="btn btn-outline-success btn-lg" href="?page=login#register-account">Create account</a>
