@@ -728,6 +728,36 @@ h6,
     color: var(--ink-soft);
 }
 
+.app-footer-card {
+    border: 1px solid var(--flag-black-strong);
+    border-top: 4px solid var(--amber);
+    background: var(--surface);
+    padding: 1.15rem 1.3rem;
+}
+
+.app-footer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+}
+
+.app-footer-heading {
+    color: var(--forest-deep);
+    font-family: 'Sora', sans-serif;
+    font-size: 1.05rem;
+}
+
+.app-footer-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 1rem 0 0.9rem;
+}
+
+.app-footer-note {
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
 @keyframes rise-in {
     from {
         opacity: 0;
@@ -773,6 +803,10 @@ h6,
 
     .hero-panel {
         border-radius: 0;
+    }
+
+    .app-footer-grid {
+        grid-template-columns: 1fr;
     }
 
     .table-responsive {

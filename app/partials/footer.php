@@ -1,9 +1,26 @@
         </main>
 
         <footer class="app-footer py-4">
-            <div class="d-flex flex-column flex-lg-row justify-content-between gap-2">
-                <p class="mb-0">MVP foundation for a government-facing fintech workflow focused on informal businesses in Uganda.</p>
-                <small>Built to support onboarding, credit readiness, and pilot decision-making across the registry.</small>
+            <div class="app-footer-card">
+                <div class="app-footer-grid">
+                    <div>
+                        <p class="section-kicker mb-2">Platform service</p>
+                        <strong class="app-footer-heading d-block mb-2">LedgerLift Uganda Pilot</strong>
+                        <p class="mb-0">Digital support for business onboarding, credit-readiness review, and public-sector monitoring workflows.</p>
+                    </div>
+                    <div>
+                        <p class="section-kicker mb-2">Ownership</p>
+                        <p class="mb-1">Copyright &copy; <?php echo date('Y'); ?> Altira. All rights reserved.</p>
+                        <p class="mb-0">Product delivery and platform stewardship by Altira.</p>
+                    </div>
+                    <div>
+                        <p class="section-kicker mb-2">Use and support</p>
+                        <p class="mb-1">Authorized pilot use only.</p>
+                        <p class="mb-0">For access or operational support, contact your designated programme administrator.</p>
+                    </div>
+                </div>
+                <div class="app-footer-divider"></div>
+                <p class="app-footer-note mb-0">Information submitted through this service should be handled in line with applicable privacy, records-management, and audit requirements.</p>
             </div>
         </footer>
     </div>

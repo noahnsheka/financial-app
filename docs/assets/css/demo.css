@@ -416,6 +416,36 @@ h6,
     font-weight: 600;
 }
 
+.app-footer-card {
+    border: 1px solid var(--flag-black-strong);
+    border-top: 4px solid var(--amber);
+    background: var(--surface);
+    padding: 1.15rem 1.3rem;
+}
+
+.app-footer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+}
+
+.app-footer-heading {
+    color: var(--forest-deep);
+    font-family: 'Sora', sans-serif;
+    font-size: 1.05rem;
+}
+
+.app-footer-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 1rem 0 0.9rem;
+}
+
+.app-footer-note {
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
 .metric-icon {
     width: 48px;
     height: 48px;
