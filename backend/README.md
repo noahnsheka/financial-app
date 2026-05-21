@@ -7,6 +7,7 @@ This backend provides a lightweight JSON API for LedgerLift Uganda.
 - `GET /api/health/`
 - `GET /api/businesses/`
 - `POST /api/businesses/`
+- `POST /api/businesses/<id>/credit-registration/`
 - `GET /api/ledger/integrity/`
 - `GET /api/demo-accounts/`
 - `POST /api/auth/login/`
@@ -36,6 +37,15 @@ Use these credentials on the PHP login page to open the role-based workspace. Au
 - `tin_number` is optional in the current MVP.
 - When present, the registration is marked as ready for tax lookup.
 - Demo registrations bypass the TIN requirement so the product can be showcased before URA integration is added.
+
+## NIN Verification Configuration
+
+- `NIRA_API_BASE_URL` and `NIRA_API_KEY` enable live NIRA verification calls for owner NIN submissions.
+- `NITA_API_BASE_URL` and `NITA_API_KEY` enable the parallel NITA verification path.
+- `UGANDA_IDENTITY_API_TIMEOUT` controls the request timeout in seconds and defaults to `8`.
+- Django reads `backend/.env` automatically in local development, so you can keep those values out of your shell profile.
+- Leave those values empty in development if you want the credit-registration flow to fall back to manual review.
+- Real provider URLs and keys are not committed in this repo and should be entered directly in Render or a private local environment file.
 
 ## Tamper-Evident Ledger
 

@@ -111,12 +111,19 @@ Backend environment variables:
 - `DJANGO_SECRET_KEY=<generate a long random value>`
 - `LEDGER_CHAIN_SECRET=<generate a second long random value reserved for ledger signing>`
 - `LEDGER_CHAIN_KEY_ID=render-primary`
+- `NIRA_API_BASE_URL=<agency-issued NIRA verification endpoint>`
+- `NIRA_API_KEY=<agency-issued NIRA API key>`
+- `NITA_API_BASE_URL=<agency-issued NITA verification endpoint>`
+- `NITA_API_KEY=<agency-issued NITA API key>`
+- `UGANDA_IDENTITY_API_TIMEOUT=8`
 - `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
 - `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-demo.onrender.com`
 - `DATABASE_URL=<Render PostgreSQL connection string>`
 
 If you keep the default service names from `render.yaml`, those hostnames will match Render's generated URLs.
+Do not commit real NIRA or NITA credentials into the repository. Enter the live values directly in Render or your local environment file.
+For local development, Django now reads `backend/.env` automatically before it resolves these settings.
 
 ## App Flow
 

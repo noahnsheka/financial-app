@@ -81,7 +81,7 @@ def verify_uganda_identity(*, nin_number: str, owner_name: str, business_name: s
         return {
             'status': 'manual_review',
             'source': 'offline_setup',
-            'notes': 'NIRA and NITA verification is configured for future live use. Add provider URLs and API keys to run live checks.',
+            'notes': 'NIRA and NITA verification is configured for future live use. Set NIRA_API_BASE_URL, NIRA_API_KEY, NITA_API_BASE_URL, and NITA_API_KEY to run live checks.',
             'details': [],
         }
 

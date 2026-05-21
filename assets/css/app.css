@@ -18,6 +18,7 @@
     --flag-yellow-soft: rgba(212, 165, 20, 0.12);
     --flag-yellow-strong: rgba(212, 165, 20, 0.2);
     --flag-red-soft: rgba(180, 35, 24, 0.1);
+    --radius-md: 0px;
     --radius-xl: 0px;
     --radius-lg: 0px;
 }
@@ -633,6 +634,11 @@ h6,
     gap: 0.85rem;
 }
 
+[data-credit-live-metrics],
+[data-government-interventions] {
+    align-items: stretch;
+}
+
 .metric-tile,
 .auth-profile-card {
     border-radius: var(--radius-lg);
@@ -654,6 +660,93 @@ h6,
 .metric-tile .text-muted,
 .auth-profile-card .text-muted {
     font-size: 0.92rem;
+}
+
+[data-credit-live-metrics] .metric-tile,
+.owner-credit-panel,
+[data-credit-shortlist] .feed-item,
+[data-government-categories] .feed-item,
+[data-government-interventions] .business-card {
+    position: relative;
+    overflow: hidden;
+}
+
+[data-credit-live-metrics] .metric-tile,
+.owner-credit-panel,
+[data-credit-shortlist] .feed-item,
+[data-government-categories] .feed-item,
+[data-government-interventions] .business-card {
+    border-width: 1px;
+    border-style: solid;
+    padding: 1.05rem 1rem 1rem;
+}
+
+[data-credit-live-metrics] .metric-tile::before,
+.owner-credit-panel::before,
+[data-credit-shortlist] .feed-item::before,
+[data-government-categories] .feed-item::before,
+[data-government-interventions] .business-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 4px;
+    background: linear-gradient(90deg, #111111 0 33.33%, #f4d017 33.33% 66.66%, #d32228 66.66% 100%);
+}
+
+[data-credit-live-metrics] .metric-tile {
+    min-height: 100%;
+    border-color: var(--flag-black-strong);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.96)),
+        linear-gradient(120deg, rgba(244, 208, 23, 0.14), transparent 65%);
+}
+
+[data-credit-live-metrics] .metric-tile strong {
+    margin-bottom: 0.3rem;
+    font-size: 1.7rem;
+}
+
+[data-credit-shortlist],
+[data-government-categories] {
+    display: grid;
+    gap: 1rem;
+}
+
+[data-credit-shortlist] .feed-item,
+[data-government-categories] .feed-item {
+    min-height: 100%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 251, 253, 0.95));
+}
+
+[data-credit-shortlist] .feed-item {
+    border-color: rgba(212, 165, 20, 0.26);
+}
+
+[data-government-categories] .feed-item {
+    border-color: rgba(16, 24, 40, 0.12);
+}
+
+[data-government-categories] .feed-item:nth-child(even) {
+    background: linear-gradient(180deg, rgba(255, 250, 230, 0.95), rgba(255, 255, 255, 0.96));
+}
+
+.owner-credit-panel {
+    border-color: rgba(212, 165, 20, 0.3);
+    background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(250, 247, 236, 0.96));
+}
+
+.owner-credit-panel .workspace-detail-grid {
+    margin-top: 0.35rem;
+}
+
+.owner-credit-panel .workspace-detail-item {
+    background: rgba(255, 255, 255, 0.84);
+    border-color: rgba(16, 24, 40, 0.1);
+}
+
+.owner-credit-panel .form-status {
+    border: 1px solid var(--flag-black-strong);
 }
 
 .action-card {
@@ -766,6 +859,31 @@ h6,
 .watchlist-item:last-child {
     border-bottom: 0;
     padding-bottom: 0;
+}
+
+[data-government-district-table] td {
+    padding-block: 0.85rem;
+    vertical-align: middle;
+}
+
+[data-government-district-table] td:first-child {
+    font-weight: 700;
+    color: var(--forest-deep);
+}
+
+[data-government-district-table] td:last-child {
+    color: var(--clay);
+    font-weight: 700;
+}
+
+[data-government-interventions] .business-card {
+    height: 100%;
+    border-color: rgba(16, 24, 40, 0.12);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.95));
+}
+
+[data-government-interventions] .business-card p:last-child {
+    margin-bottom: 0;
 }
 
 .empty-state {
@@ -902,5 +1020,13 @@ h6,
 
     .stat-chip strong {
         font-size: 1.15rem;
+    }
+
+    [data-credit-live-metrics] .metric-tile,
+    .owner-credit-panel,
+    [data-credit-shortlist] .feed-item,
+    [data-government-categories] .feed-item,
+    [data-government-interventions] .business-card {
+        padding: 1rem 0.95rem 0.95rem;
     }
 }
