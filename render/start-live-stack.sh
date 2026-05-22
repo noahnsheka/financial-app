@@ -1,5 +1,4 @@
 #!/bin/sh
-set -eu
 
 ROOT_DIR=/app
 BACKEND_DIR="$ROOT_DIR/backend"
@@ -8,6 +7,7 @@ export LEDGERLIFT_API_BASE_URL="${LEDGERLIFT_API_BASE_URL:-/api}"
 export LEDGERLIFT_INTERNAL_API_BASE_URL="${LEDGERLIFT_INTERNAL_API_BASE_URL:-http://127.0.0.1:8001/api}"
 
 cleanup() {
+    echo "Cleaning up services..."
     kill "${PROXY_PID:-0}" "${GUNICORN_PID:-0}" "${PHP_PID:-0}" 2>/dev/null || true
 }
 
@@ -36,39 +36,53 @@ PY
 
 trap cleanup EXIT INT TERM
 
+echo "=== LedgerLift Live Stack Startup ==="
 echo "Starting LedgerLift live proxy..."
-python "$ROOT_DIR/render/live_proxy.py" &
+python "$ROOT_DIR/render/live_proxy.py" 2>&1 &
 PROXY_PID=$!
-echo "Proxy PID: $PROXY_PID"
-sleep 2
+echo "✓ Proxy started (PID: $PROXY_PID)"
+sleep 3
 
 cd "$BACKEND_DIR"
-echo "Running migrations..."
-timeout 120 python manage.py migrate --noinput 2>&1 | head -100 || echo "Migrations timed out or failed, continuing..."
+echo "Running database migrations..."
+if timeout 120 python manage.py migrate --noinput 2>&1 | head -100; then
+    echo "✓ Migrations completed"
+else
+    echo "⚠ Migrations failed or timed out, continuing anyway..."
+fi
 
 # Skip seeding on Render by default to avoid conflicts with existing data
 if [ "${LEDGERLIFT_SEED_ON_START:-0}" = "1" ]; then
     echo "Seeding demo data..."
-    timeout 60 python manage.py seed_demo_data 2>&1 | head -100 || echo "Seed data timed out or failed, continuing..."
+    if timeout 60 python manage.py seed_demo_data 2>&1 | head -100; then
+        echo "✓ Demo data seeded"
+    else
+        echo "⚠ Seed data failed or timed out, continuing anyway..."
+    fi
 else
     echo "Skipping demo data seed (set LEDGERLIFT_SEED_ON_START=1 to enable)"
 fi
 
-echo "Starting gunicorn..."
-gunicorn ledgerlift_backend.wsgi:application --bind 127.0.0.1:8001 --access-logfile - --error-logfile - &
+echo "Starting gunicorn backend server..."
+gunicorn ledgerlift_backend.wsgi:application --bind 127.0.0.1:8001 --workers 2 --access-logfile - --error-logfile - 2>&1 &
 GUNICORN_PID=$!
-echo "Gunicorn PID: $GUNICORN_PID"
+echo "✓ Gunicorn started (PID: $GUNICORN_PID)"
 
 cd "$ROOT_DIR"
-echo "Starting PHP server..."
-php -S 127.0.0.1:8088 -t "$ROOT_DIR" &
+echo "Starting PHP frontend server..."
+php -S 127.0.0.1:8088 -t "$ROOT_DIR" 2>&1 &
 PHP_PID=$!
-echo "PHP PID: $PHP_PID"
+echo "✓ PHP started (PID: $PHP_PID)"
 
-echo "Services started. Waiting for backend to be ready..."
-wait_for_url "http://127.0.0.1:8001/api/health/" || echo "Backend health check timeout, but continuing..."
-echo "Backend ready. Waiting for frontend..."
-wait_for_url "http://127.0.0.1:8088/" || echo "Frontend health check timeout, but continuing..."
-echo "All services running. Live proxy is handling requests."
+echo ""
+echo "=== Waiting for services to be ready ==="
+wait_for_url "http://127.0.0.1:8001/api/health/" || echo "⚠ Backend health check timed out, proxy may report degraded service initially"
+wait_for_url "http://127.0.0.1:8088/" || echo "⚠ Frontend health check timed out, proxy may report degraded service initially"
+
+echo ""
+echo "=== Services are running ==="
+echo "Proxy listening on PORT (forwarding to backend:8001 and frontend:8088)"
+echo "Ready to accept requests."
+echo ""
 
 wait "$PROXY_PID"
