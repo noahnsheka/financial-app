@@ -15,20 +15,20 @@ const pages = {
         label: 'Registration',
         eyebrow: 'Business onboarding',
         title: 'Register new informal businesses into the pilot',
-        description: 'Capture shop details, mobile money references, and TIN data in one place and write them into the live registry.',
+        description: 'Capture shop details, mobile money references, and TIN data in one place using a database-exported snapshot of the live platform structure.',
     },
     login: {
         label: 'Login',
         eyebrow: 'Access portal',
         title: 'Preview the role-based flows',
-        description: 'Sign in to the live role-based platform and continue into the right workspace.',
+        description: 'The GitHub Pages build shows snapshot content. Use the local stack for real sign-in and writes.',
         nav: false,
     },
     workspace: {
         label: 'Workspace',
         eyebrow: 'Role workspace',
         title: 'Preview the role-based control room',
-        description: 'Open the live role-based control room with database-backed owner and official workflows.',
+        description: 'This static build can render a database-backed owner workspace preview, but save actions stay disabled here.',
         nav: false,
     },
     credit: {
@@ -237,7 +237,7 @@ const buildBusinessesView = () => `
                 </div>
 
                 <div class="empty-state mt-4" data-business-empty>
-                    No businesses match the current search.
+                    No businesses in the exported snapshot match the current search.
                 </div>
             </article>
         </div>
@@ -279,9 +279,9 @@ const buildRegistrationView = (data) => `
                     <div>
                         <p class="section-kicker mb-2">Onboarding form</p>
                         <h2 class="h4 mb-1">Capture the business details needed for the MVP</h2>
-                        <p class="text-muted mb-0">This form writes into the live registry when the backend service is available.</p>
+                        <p class="text-muted mb-0">This static page uses a database-exported snapshot for preview only. Save actions are disabled here.</p>
                     </div>
-                    <span class="pill-note pill-note-muted align-self-start" data-service-status>Checking service...</span>
+                    <span class="pill-note pill-note-muted align-self-start" data-service-status>Snapshot mode</span>
                 </div>
 
                 <form class="row g-3" data-registration-form>
@@ -369,7 +369,7 @@ const buildRegistrationView = (data) => `
                     </div>
                     <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
                         <button class="btn btn-warning btn-lg px-4" type="submit" data-submit-button>Save registration</button>
-                        <small class="text-muted">This saves directly to the live backend and updates the registry views when the request succeeds.</small>
+                        <small class="text-muted">Open the local stack to write a real registration into the database.</small>
                     </div>
                 </form>
             </article>
@@ -388,18 +388,18 @@ const buildRegistrationView = (data) => `
 
             <article class="panel mb-4">
                 <p class="section-kicker mb-2">Data integrity</p>
-                <h2 class="h4 mb-4">Live service expectations</h2>
+                <h2 class="h4 mb-4">Snapshot rules on Pages</h2>
                 <div class="business-card mb-3">
-                    <strong class="d-block mb-2">Backed by the live API</strong>
-                    <p class="mb-0 text-muted">The frontend pulls bootstrap, auth, and registry data from the running LedgerLift backend instead of exported JSON files.</p>
+                    <strong class="d-block mb-2">Backed by the local DB export</strong>
+                    <p class="mb-0 text-muted">The public pages use JSON snapshots exported from the Django database, not hand-written placeholder objects.</p>
                 </div>
                 <div class="business-card mb-3">
-                    <strong class="d-block mb-2">Writes go through to the registry</strong>
-                    <p class="mb-0 text-muted">Sign-in, registration, workspace updates, and credit actions use the same backend routes as the main app.</p>
+                    <strong class="d-block mb-2">Read-only on GitHub Pages</strong>
+                    <p class="mb-0 text-muted">Sign-in and save actions remain disabled here until the live deployment host is reachable again.</p>
                 </div>
                 <div class="business-card">
-                    <strong class="d-block mb-2">Same live deployment target</strong>
-                    <p class="mb-0 text-muted">This frontend targets the financial-app Render service so both surfaces stay aligned on one source of truth.</p>
+                    <strong class="d-block mb-2">Full flow locally</strong>
+                    <p class="mb-0 text-muted">Run the PHP frontend and Django API together from the repository root for live auth and updates.</p>
                 </div>
             </article>
 
@@ -407,7 +407,7 @@ const buildRegistrationView = (data) => `
                 <p class="section-kicker mb-2">Recent submissions</p>
                 <h2 class="h4 mb-4">Latest registrations in the registry</h2>
                 <div class="registration-feed" data-registration-feed>
-                    Loading live registrations...
+                    Loading exported registrations...
                 </div>
             </article>
         </div>
@@ -422,9 +422,9 @@ const buildLoginView = (data) => `
                     <div>
                         <p class="section-kicker mb-2">Secure entry</p>
                         <h2 class="h4 mb-1">Sign in as an official or business owner</h2>
-                        <p class="text-muted mb-0">Use the same live sign-in and business-owner registration flow from this frontend when the backend service is available.</p>
+                        <p class="text-muted mb-0">GitHub Pages is running in snapshot mode, so these forms are disabled here even though the role flows are still previewable.</p>
                     </div>
-                    <span class="pill-note pill-note-muted align-self-start">Live access</span>
+                    <span class="pill-note pill-note-muted align-self-start">Snapshot preview</span>
                 </div>
 
                 <form class="row g-3" data-login-form>
@@ -441,7 +441,7 @@ const buildLoginView = (data) => `
                     </div>
                     <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
                         <button class="btn btn-warning btn-lg px-4" type="submit" data-login-submit>Sign in</button>
-                        <small class="text-muted">Authentication is handled by the live backend and routes you into the correct workspace after sign-in.</small>
+                        <small class="text-muted">Use the local stack for real authentication. Pages only renders preview content from DB snapshots.</small>
                     </div>
                 </form>
             </article>
@@ -451,7 +451,7 @@ const buildLoginView = (data) => `
                     <div>
                         <p class="section-kicker mb-2">Create access</p>
                         <h2 class="h4 mb-1">Create a business owner account</h2>
-                        <p class="text-muted mb-0">This creates a live business-owner account and linked profile when the backend is reachable.</p>
+                        <p class="text-muted mb-0">The structure matches the live flow, but the write path is disabled on GitHub Pages.</p>
                     </div>
                     <span class="pill-note pill-note-muted align-self-start">Business owner access</span>
                 </div>
@@ -551,7 +551,7 @@ const buildLoginView = (data) => `
                     </div>
                     <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
                         <button class="btn btn-outline-success btn-lg px-4" type="submit" data-register-submit>Create owner account</button>
-                        <small class="text-muted">Account creation writes through to the live backend and then redirects into the owner workspace.</small>
+                        <small class="text-muted">Run the real stack locally to submit a business-owner account and linked profile.</small>
                     </div>
                 </form>
             </article>
@@ -560,18 +560,18 @@ const buildLoginView = (data) => `
         <div class="col-lg-5">
             <article class="panel mb-4">
                 <p class="section-kicker mb-2">Preview paths</p>
-                <h2 class="h4 mb-4">Open role-specific live pages</h2>
+                <h2 class="h4 mb-4">Open role-specific snapshot pages</h2>
                 <div class="business-card mb-3">
                     <strong class="d-block mb-2">Official analytics</strong>
-                    <p class="mb-3 text-muted">Use the government and credit pages to review the current live portfolio state from the backend.</p>
+                    <p class="mb-3 text-muted">Use the exported government and credit snapshots to review the current DB-backed portfolio state.</p>
                     <div class="d-flex flex-wrap gap-2">
                         <a class="btn btn-outline-success btn-sm" href="?page=government">Government preview</a>
                         <a class="btn btn-outline-success btn-sm" href="?page=credit">Credit preview</a>
                     </div>
                 </div>
                 <div class="business-card">
-                    <strong class="d-block mb-2">Owner workspace</strong>
-                    <p class="mb-3 text-muted">The owner workspace reads and writes the linked business profile, stock, documents, and credit intake live.</p>
+                    <strong class="d-block mb-2">Owner workspace preview</strong>
+                    <p class="mb-3 text-muted">The owner workspace page renders a read-only preview from the linked owner snapshot exported out of the database.</p>
                     <a class="btn btn-warning btn-sm" href="?page=workspace">Open owner workspace</a>
                 </div>
             </article>
@@ -882,19 +882,9 @@ const buildMainView = (pageKey, data) => {
     }
 };
 
-const isLocalFrontend = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const localApiBaseUrl = 'http://127.0.0.1:8001/api';
-const liveApiBaseUrl = 'https://financial-app.onrender.com/api';
-
-const fetchApiJson = async (apiBaseUrl, path, fallback) => {
+const fetchJsonFile = async (path, fallback) => {
     try {
-        const response = await fetch(`${apiBaseUrl}${path}`, {
-            cache: 'no-store',
-            credentials: 'include',
-            headers: {
-                Accept: 'application/json',
-            },
-        });
+        const response = await fetch(path, { cache: 'no-store' });
 
         if (!response.ok) {
             throw new Error(`Unable to load ${path}`);
@@ -917,14 +907,19 @@ const resolvePage = () => {
 };
 
 const buildAppData = async () => {
-    const apiBaseUrl = isLocalFrontend ? localApiBaseUrl : liveApiBaseUrl;
-    const bootstrap = await fetchApiJson(apiBaseUrl, '/platform/bootstrap/', defaultBootstrap);
+    const [bootstrap, officialBusinesses, ownerBusinesses, ownerSession, officialSession] = await Promise.all([
+        fetchJsonFile('./assets/data/bootstrap.json', defaultBootstrap),
+        fetchJsonFile('./assets/data/businesses.json', { results: [] }),
+        fetchJsonFile('./assets/data/owner-businesses.json', { results: [] }),
+        fetchJsonFile('./assets/data/owner-session.json', null),
+        fetchJsonFile('./assets/data/official-session.json', null),
+    ]);
 
     return {
         appName: 'LedgerLift Uganda',
         tagline: 'Credit-ready records for informal businesses',
-        apiBaseUrl,
-        staticMode: false,
+        apiBaseUrl: 'https://financial-app.onrender.com/api',
+        staticMode: true,
         registrationForm: bootstrap.registrationForm || defaultBootstrap.registrationForm,
         demoAccounts: [],
         heroStats: bootstrap.heroStats || [],
@@ -934,15 +929,15 @@ const buildAppData = async () => {
         scoreTrend: bootstrap.scoreTrend || defaultBootstrap.scoreTrend,
         districtPerformance: bootstrap.districtPerformance || defaultBootstrap.districtPerformance,
         stockAlerts: bootstrap.stockAlerts || [],
-        businesses: [],
-        ownerBusinesses: [],
+        businesses: Array.isArray(officialBusinesses.results) ? officialBusinesses.results : [],
+        ownerBusinesses: Array.isArray(ownerBusinesses.results) ? ownerBusinesses.results : [],
         scoreBreakdown: bootstrap.scoreBreakdown || [],
         loanPrograms: bootstrap.loanPrograms || [],
         districtInsights: [],
         watchlist: bootstrap.watchlist || [],
         interventions: bootstrap.interventions || [],
-        ownerSession: null,
-        officialSession: null,
+        ownerSession,
+        officialSession,
     };
 };
 
@@ -955,7 +950,6 @@ const loadSharedRuntime = () => {
 const renderShell = (appData, activePage, notFound) => {
     const root = document.getElementById('appRoot');
     const pageConfig = pages[activePage];
-    const liveMode = !appData.staticMode;
     const primaryNavKeys = ['dashboard', 'businesses', 'registration'];
     const primaryPages = Object.entries(pages).filter(([pageKey, config]) => (config.nav ?? true) && primaryNavKeys.includes(pageKey));
     const secondaryPages = Object.entries(pages).filter(([pageKey, config]) => (config.nav ?? true) && !primaryNavKeys.includes(pageKey));
@@ -988,8 +982,8 @@ const renderShell = (appData, activePage, notFound) => {
                                 `).join('')}
                             </div>
                             <div class="hero-note mt-3">
-                                <strong class="d-block mb-2">${liveMode ? 'Live service connection' : 'Snapshot source'}</strong>
-                                <p class="mb-0 text-muted">${liveMode ? 'This frontend is connected to the live LedgerLift API, so dashboard figures reflect the current platform state whenever the service is reachable.' : 'This Pages build is using JSON exported from the local Django database, so the public metrics are still grounded in the current registry snapshot.'}</p>
+                                <strong class="d-block mb-2">Snapshot source</strong>
+                                <p class="mb-0 text-muted">This Pages build is using JSON exported from the local Django database, so the public metrics are still grounded in the current registry snapshot.</p>
                             </div>
                         </div>
                     </div>
@@ -1059,11 +1053,9 @@ const renderShell = (appData, activePage, notFound) => {
                 </div>
             </header>
 
-            ${liveMode ? '' : `
             <section class="alert alert-warning border-0 shadow-sm mb-3">
                 <strong>GitHub Pages snapshot mode.</strong> This frontend is rendering from database-exported JSON files. Read-only previews are available here, but real sign-in and save actions require the local stack or a repaired live deployment.
             </section>
-            `}
 
             ${heroSection}
 
@@ -1081,14 +1073,14 @@ const renderShell = (appData, activePage, notFound) => {
                             <p class="mb-0">Digital support for business onboarding, credit-readiness review, and public-sector monitoring workflows.</p>
                         </div>
                         <div>
-                            <p class="section-kicker mb-2">${liveMode ? 'Connected service' : 'Snapshot source'}</p>
-                            <p class="mb-1">${liveMode ? 'Live API: financial-app.onrender.com/api' : 'Exported from the local Django database.'}</p>
-                            <p class="mb-0">${liveMode ? 'Sign-in, workspace updates, and registrations flow through the live backend when the service is available.' : 'Use <strong>run-local.ps1</strong> from the repository root for the full live flow.'}</p>
+                            <p class="section-kicker mb-2">Snapshot source</p>
+                            <p class="mb-1">Exported from the local Django database.</p>
+                            <p class="mb-0">Use <strong>run-local.ps1</strong> from the repository root for the full live flow.</p>
                         </div>
                         <div>
                             <p class="section-kicker mb-2">Use and support</p>
-                            <p class="mb-1">${liveMode ? 'Live frontend mode.' : 'Read-only Pages preview.'}</p>
-                            <p class="mb-0">${liveMode ? 'If the backend is unavailable, the service indicators in the page will show that directly instead of falling back to snapshot mode.' : 'For access or operational support, use the live local stack while the public deployment host is unavailable.'}</p>
+                            <p class="mb-1">Read-only Pages preview.</p>
+                            <p class="mb-0">For access or operational support, use the live local stack while the public deployment host is unavailable.</p>
                         </div>
                     </div>
                     <div class="app-footer-divider"></div>
