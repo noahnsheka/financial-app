@@ -1,14 +1,17 @@
 services:
+  - type: static
+    name: ledgerlift-uganda-demo
+    buildCommand: echo "static site ready"
+    staticPublishPath: docs
+
   - type: web
-    name: financial-app
-    env: docker
-    dockerfilePath: ./Dockerfile
+    name: ledgerlift-uganda-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py migrate && python manage.py seed_demo_data && python manage.py collectstatic --noinput
+    startCommand: gunicorn ledgerlift_backend.wsgi:application --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health/
     envVars:
-      - key: LEDGERLIFT_API_BASE_URL
-        value: /api
-      - key: LEDGERLIFT_INTERNAL_API_BASE_URL
-        value: http://127.0.0.1:8001/api
       - key: DJANGO_DEBUG
         value: 0
       - key: DJANGO_SECRET_KEY
@@ -28,11 +31,11 @@ services:
       - key: UGANDA_IDENTITY_API_TIMEOUT
         value: "8"
       - key: DJANGO_ALLOWED_HOSTS
-        value: financial-app.onrender.com,127.0.0.1,localhost
+        value: ledgerlift-uganda-api.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
-        value: https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com
+        value: https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com
       - key: LEDGERLIFT_ALLOWED_ORIGINS
-        value: https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com
+        value: https://ledgerlift-uganda-demo.onrender.com
       - key: DATABASE_URL
         fromDatabase:
           name: ledgerlift-uganda-db
@@ -40,6 +43,3 @@ services:
 
 databases:
   - name: ledgerlift-uganda-db
-    plan: free
-    databaseName: ledgerlift_uganda
-    user: ledgerlift_uganda

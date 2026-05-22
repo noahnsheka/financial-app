@@ -5,7 +5,7 @@
                 <div>
                     <p class="section-kicker mb-2">Onboarding form</p>
                     <h2 class="h4 mb-1">Capture the business details needed for the MVP</h2>
-                    <p class="text-muted mb-0">Every registration now lands directly in the database and contributes to the live dashboards, scoring, and owner workspace.</p>
+                    <p class="text-muted mb-0">TIN remains optional for now, but businesses with valid TINs will be better positioned for future tax verification and government support services.</p>
                 </div>
                 <span class="pill-note pill-note-muted align-self-start" data-service-status>Checking service...</span>
             </div>
@@ -48,7 +48,7 @@
                 <div class="col-md-6">
                     <label class="form-label" for="tin_number">TIN number</label>
                     <input class="form-control" id="tin_number" name="tin_number" type="text" placeholder="Optional for the MVP" data-tin-input>
-                    <div class="form-text">When provided, the record is marked as ready for future tax verification.</div>
+                    <div class="form-text">Leave blank for demo onboarding. When provided, the record is marked as ready for future tax verification.</div>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="monthly_revenue_band">Monthly revenue band</label>
@@ -100,6 +100,15 @@
                     <textarea class="form-control" id="notes" name="notes" rows="4" placeholder="Add anything useful for the pilot, such as supplier relationships, seasonal issues, or tax follow-up needs."></textarea>
                 </div>
                 <div class="col-12">
+                    <div class="demo-switch">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" id="is_demo_account" name="is_demo_account" type="checkbox" data-demo-toggle>
+                            <label class="form-check-label fw-semibold" for="is_demo_account">Register as a demo account</label>
+                        </div>
+                        <p class="mb-0 text-muted small" data-demo-note>Demo accounts can be created without a TIN so the team can showcase onboarding and credit flows before the tax integration is live.</p>
+                    </div>
+                </div>
+                <div class="col-12">
                     <div class="form-status" data-registration-message></div>
                 </div>
                 <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
@@ -117,7 +126,7 @@
             <ul class="list-check compact-list mb-0">
                 <li>Allow TIN collection now, even if live verification is added later.</li>
                 <li>When a business becomes credit ready, capture the owner NIN for the NIRA or NITA verification flow.</li>
-                <li>Keep the business profile current because every saved record now feeds the live oversight and owner dashboards.</li>
+                <li>Use demo mode whenever you need a clean showcase account without waiting for tax or identity validation.</li>
             </ul>
         </article>
 
@@ -139,20 +148,22 @@
         </article>
 
         <article class="panel mb-4">
-            <p class="section-kicker mb-2">Data integrity</p>
-            <h2 class="h4 mb-4">What changed in this flow</h2>
-            <div class="business-card mb-3">
-                <strong class="d-block mb-2">No placeholder accounts</strong>
-                <p class="mb-0 text-muted">The interface no longer exposes account credentials. Authentication and registrations now depend on the database only.</p>
-            </div>
-            <div class="business-card mb-3">
-                <strong class="d-block mb-2">Live portfolio impact</strong>
-                <p class="mb-0 text-muted">Every saved business now affects the dashboard metrics, stock watch, credit analytics, and government view in real time.</p>
-            </div>
-            <div class="business-card">
-                <strong class="d-block mb-2">Owner-ready records</strong>
-                <p class="mb-0 text-muted">Each business can now support database-backed stock logs, documents, monthly sales history, and credit drafts in the owner workspace.</p>
-            </div>
+            <p class="section-kicker mb-2">Demo accounts</p>
+            <h2 class="h4 mb-4">Seeded access accounts for the showcase</h2>
+            <?php foreach ($data['demoAccounts'] as $account): ?>
+                <div class="business-card mb-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                        <div>
+                            <strong class="d-block"><?php echo e($account['displayName']); ?></strong>
+                            <span class="text-muted small"><?php echo e($account['role']); ?></span>
+                        </div>
+                        <span class="pill-note">No TIN required</span>
+                    </div>
+                    <div class="small mb-1"><strong>Username:</strong> <?php echo e($account['username']); ?></div>
+                    <div class="small mb-2"><strong>Password:</strong> <?php echo e($account['password']); ?></div>
+                    <p class="mb-0 text-muted small"><?php echo e($account['note']); ?></p>
+                </div>
+            <?php endforeach; ?>
         </article>
 
         <article class="panel">

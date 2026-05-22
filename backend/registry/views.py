@@ -1,6 +1,5 @@
 import json
 import os
-from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
 
@@ -11,16 +10,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from .identity_verification import verify_uganda_identity
-from .models import (
-    AppSecurityLedgerBlock,
-    BusinessRegistration,
-    BusinessRegistrationLedgerBlock,
-    DemoAccessProfile,
-    PlatformConfiguration,
-    decimal_or_zero,
-    int_or_zero,
-    serialize_decimal,
-)
+from .models import AppSecurityLedgerBlock, BusinessRegistration, BusinessRegistrationLedgerBlock, DemoAccessProfile, serialize_decimal
 
 
 OFFICIAL_ROLES = {
@@ -175,8 +165,8 @@ def build_request_security_payload(request: HttpRequest, **extra_fields) -> dict
     return payload
 
 
-def serialize_business(business: BusinessRegistration, *, include_workspace: bool = False) -> dict:
-    payload = {
+def serialize_business(business: BusinessRegistration) -> dict:
+    return {
         'id': business.id,
         'business_name': business.business_name,
         'owner_name': business.owner_name,
@@ -229,11 +219,6 @@ def serialize_business(business: BusinessRegistration, *, include_workspace: boo
         'updated_at': business.updated_at.isoformat(),
     }
 
-    if include_workspace:
-        payload['workspace'] = business.normalized_workspace_payload
-
-    return payload
-
 
 def get_demo_profile(user):
     try:
@@ -280,271 +265,6 @@ def serialize_session_user(user) -> dict:
         'notes': profile.notes if profile else '',
         'recommended_page': recommended_page,
         'business': serialize_business(owned_business) if owned_business else None,
-    }
-
-
-def format_compact_currency_label(value) -> str:
-    amount = decimal_or_zero(value)
-
-    if amount >= Decimal('1000000'):
-        millions = float(amount / Decimal('1000000'))
-        label = f'UGX {millions:.1f}M'
-        return label.replace('.0M', 'M')
-
-    if amount >= Decimal('1000'):
-        thousands = float(amount / Decimal('1000'))
-        label = f'UGX {thousands:.0f}k'
-        return label
-
-    return f'UGX {int(amount)}'
-
-
-def format_percentage_label(numerator: int, denominator: int) -> str:
-    if denominator <= 0:
-        return '0%'
-
-    return f"{round((numerator / denominator) * 100)}%"
-
-
-def parse_workspace_date(value, label: str) -> date:
-    raw_value = str(value or '').strip()
-
-    if not raw_value:
-        raise ValueError(f'{label} is required.')
-
-    try:
-        return date.fromisoformat(raw_value)
-    except ValueError as exc:
-        raise ValueError(f'{label} must be a valid date.') from exc
-
-
-def build_workspace_entry_id(prefix: str) -> str:
-    return f'{prefix}-{timezone.now():%Y%m%d%H%M%S%f}'
-
-
-def latest_workspace_stock_entries(stock_entries: list[dict]) -> list[dict]:
-    latest_by_item = {}
-
-    for entry in sorted(stock_entries, key=lambda item: str(item.get('date', '')), reverse=True):
-        item_key = str(entry.get('item_name', '')).strip().lower()
-
-        if not item_key or item_key in latest_by_item:
-            continue
-
-        latest_by_item[item_key] = entry
-
-    return list(latest_by_item.values())
-
-
-def get_business_access_context(request: HttpRequest, business: BusinessRegistration) -> tuple[str, bool]:
-    user_role = get_user_role(request.user)
-    owned_business = get_owned_business(request.user)
-    can_manage_business = (
-        user_role == DemoAccessProfile.Role.BUSINESS_OWNER
-        and owned_business is not None
-        and owned_business.pk == business.pk
-    )
-    return user_role, can_manage_business
-
-
-def summarize_business_stock_alerts(business: BusinessRegistration) -> list[dict]:
-    alerts = []
-
-    for entry in latest_workspace_stock_entries(business.normalized_workspace_payload['stock_entries']):
-        on_hand = int_or_zero(entry.get('on_hand'))
-        reorder_level = max(1, int_or_zero(entry.get('reorder_level')))
-        sold = int_or_zero(entry.get('sold'))
-
-        if on_hand > reorder_level:
-            continue
-
-        estimated_days = max(1, round(on_hand / max(sold, 1)))
-        severity = 'Critical' if on_hand <= max(1, round(reorder_level * 0.5)) else 'High'
-
-        alerts.append(
-            {
-                'business': business.business_name,
-                'district': business.district,
-                'category': entry.get('item_name') or business.sector,
-                'days': f'{estimated_days} day{"s" if estimated_days != 1 else ""} left',
-                'severity': severity,
-            }
-        )
-
-    return alerts
-
-
-def build_platform_bootstrap_payload() -> dict:
-    config, _ = PlatformConfiguration.objects.get_or_create(singleton_id=1)
-    businesses = list(BusinessRegistration.objects.select_related('account_user').all())
-    business_count = len(businesses)
-    unique_districts = sorted({business.district for business in businesses if business.district})
-    credit_ready_count = sum(1 for business in businesses if business.is_credit_ready)
-    mobile_money_enabled_count = sum(1 for business in businesses if business.mobile_money_number)
-    average_credit_score = round(
-        sum(business.credit_score for business in businesses) / business_count,
-    ) if business_count else 0
-
-    monthly_rollups = {}
-    sector_counts = {}
-    stock_alerts = []
-    receipt_gap_count = 0
-    missing_tin_count = 0
-
-    for business in businesses:
-        if business.receipt_count < 5:
-            receipt_gap_count += 1
-
-        if not business.tin_number:
-            missing_tin_count += 1
-
-        sector_key = business.sector or 'Unspecified'
-        sector_counts[sector_key] = sector_counts.get(sector_key, 0) + 1
-        stock_alerts.extend(summarize_business_stock_alerts(business))
-
-        for entry in business.normalized_workspace_payload['monthly_sales']:
-            month_start = str(entry.get('month_start', '')).strip()
-
-            if not month_start:
-                continue
-
-            if month_start not in monthly_rollups:
-                monthly_rollups[month_start] = {
-                    'cash_sales': Decimal('0'),
-                    'label': str(entry.get('label', '')).strip() or month_start,
-                    'mobile_money': Decimal('0'),
-                    'readiness_scores': [],
-                    'supplier_payments': Decimal('0'),
-                }
-
-            monthly_rollups[month_start]['mobile_money'] += decimal_or_zero(entry.get('mobile_money'))
-            monthly_rollups[month_start]['cash_sales'] += decimal_or_zero(entry.get('cash_sales'))
-            monthly_rollups[month_start]['supplier_payments'] += decimal_or_zero(entry.get('supplier_payments'))
-            monthly_rollups[month_start]['readiness_scores'].append(
-                int_or_zero(entry.get('readiness_score')) or business.credit_score,
-            )
-
-    ordered_months = sorted(monthly_rollups.keys())[-6:]
-    collections = {
-        'labels': [monthly_rollups[month]['label'] for month in ordered_months],
-        'mobileMoney': [round(float(monthly_rollups[month]['mobile_money'] / Decimal('1000000')), 1) for month in ordered_months],
-        'cash': [round(float(monthly_rollups[month]['cash_sales'] / Decimal('1000000')), 1) for month in ordered_months],
-        'supplierPayments': [round(float(monthly_rollups[month]['supplier_payments'] / Decimal('1000000')), 1) for month in ordered_months],
-    }
-    score_trend = {
-        'labels': [monthly_rollups[month]['label'] for month in ordered_months],
-        'values': [
-            round(sum(monthly_rollups[month]['readiness_scores']) / len(monthly_rollups[month]['readiness_scores']))
-            if monthly_rollups[month]['readiness_scores'] else 0
-            for month in ordered_months
-        ],
-    }
-
-    inventory_mix_labels = sorted(sector_counts, key=sector_counts.get, reverse=True)[:4]
-    inventory_mix = {
-        'labels': inventory_mix_labels,
-        'values': [sector_counts[label] for label in inventory_mix_labels],
-    }
-
-    district_performance_rows = []
-    for district in unique_districts:
-        district_businesses = [business for business in businesses if business.district == district]
-        district_performance_rows.append(
-            {
-                'district': district,
-                'avg_score': round(
-                    sum(business.credit_score for business in district_businesses) / len(district_businesses),
-                ) if district_businesses else 0,
-                'count': len(district_businesses),
-            }
-        )
-
-    district_performance_rows.sort(key=lambda item: item['avg_score'], reverse=True)
-    district_performance = {
-        'labels': [row['district'] for row in district_performance_rows[:5]],
-        'scores': [row['avg_score'] for row in district_performance_rows[:5]],
-    }
-
-    watchlist = [
-        {
-            'title': 'Active stock pressure in live businesses',
-            'detail': f'{len(stock_alerts)} stock alerts are currently below reorder level across the registry.',
-        },
-        {
-            'title': 'Receipt evidence still missing in part of the portfolio',
-            'detail': f'{receipt_gap_count} businesses still have fewer than five receipts recorded in the database.',
-        },
-        {
-            'title': 'Formalization still depends on TIN capture',
-            'detail': f'{missing_tin_count} businesses do not yet have a TIN on file for tax-readiness checks.',
-        },
-    ]
-    interventions = [
-        {
-            'title': 'Resolve low-stock businesses first',
-            'detail': f'Prioritize support for the {len(stock_alerts)} businesses already at or below the reorder threshold.',
-        },
-        {
-            'title': 'Improve receipt discipline',
-            'detail': f'Focus bookkeeping support on the {receipt_gap_count} businesses with weak receipt evidence.',
-        },
-        {
-            'title': 'Close TIN coverage gaps',
-            'detail': f'Push compliance outreach for the {missing_tin_count} businesses missing tax identifiers.',
-        },
-    ]
-
-    return {
-        'registrationForm': {
-            'districts': config.registration_form.get('districts', []),
-            'sectors': config.registration_form.get('sectors', []),
-            'revenueBands': config.registration_form.get('revenueBands', []),
-        },
-        'scoreBreakdown': config.score_breakdown,
-        'loanPrograms': config.loan_programs,
-        'heroStats': [
-            {'label': 'Districts in pilot', 'value': str(len(unique_districts))},
-            {'label': 'Daily mobile money sync', 'value': format_percentage_label(mobile_money_enabled_count, business_count)},
-            {'label': 'Loan-ready shops', 'value': format_percentage_label(credit_ready_count, business_count)},
-            {'label': 'Stock alerts open', 'value': str(len(stock_alerts))},
-        ],
-        'metrics': [
-            {
-                'label': 'Tracked businesses',
-                'value': str(business_count),
-                'delta': f'{credit_ready_count} credit ready',
-                'icon': 'shop-window',
-                'tone': 'forest',
-            },
-            {
-                'label': 'Mobile money volume',
-                'value': format_compact_currency_label(sum(monthly_rollups[month]['mobile_money'] for month in ordered_months)),
-                'delta': f'{mobile_money_enabled_count} businesses synced',
-                'icon': 'phone',
-                'tone': 'amber',
-            },
-            {
-                'label': 'Average pilot score',
-                'value': f'{average_credit_score} / 100',
-                'delta': f'{receipt_gap_count} with receipt gaps',
-                'icon': 'bar-chart-line',
-                'tone': 'sage',
-            },
-            {
-                'label': 'Inventory risk',
-                'value': f'{len(stock_alerts)} alerts',
-                'delta': f'{missing_tin_count} missing TIN',
-                'icon': 'boxes',
-                'tone': 'clay',
-            },
-        ],
-        'collections': collections,
-        'inventoryMix': inventory_mix,
-        'scoreTrend': score_trend,
-        'districtPerformance': district_performance,
-        'stockAlerts': stock_alerts[:8],
-        'watchlist': watchlist,
-        'interventions': interventions,
     }
 
 
@@ -612,28 +332,14 @@ def service_root(request: HttpRequest) -> HttpResponse:
                 '/api/auth/register/',
                 '/api/auth/logout/',
                 '/api/auth/me/',
-                '/api/platform/bootstrap/',
                 '/api/businesses/',
                 '/api/businesses/<id>/',
-                '/api/businesses/<id>/stock-entries/',
-                '/api/businesses/<id>/documents/',
-                '/api/businesses/<id>/credit-draft/',
                 '/api/businesses/<id>/credit-registration/',
                 '/api/ledger/integrity/',
             ],
         },
         request=request,
     )
-
-
-def platform_bootstrap(request: HttpRequest) -> HttpResponse:
-    if request.method == 'OPTIONS':
-        return options_response(request)
-
-    if request.method != 'GET':
-        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
-
-    return json_response(build_platform_bootstrap_payload(), request=request)
 
 
 @csrf_exempt
@@ -649,7 +355,7 @@ def business_collection(request: HttpRequest) -> HttpResponse:
     if request.method == 'GET':
         if user_role == DemoAccessProfile.Role.BUSINESS_OWNER:
             owned_business = get_owned_business(request.user)
-            businesses = [serialize_business(owned_business, include_workspace=True)] if owned_business else []
+            businesses = [serialize_business(owned_business)] if owned_business else []
             return json_response({'count': len(businesses), 'results': businesses, 'scope': 'owned'}, request=request)
 
         businesses = [serialize_business(business) for business in BusinessRegistration.objects.select_related('account_user').all()[:25]]
@@ -741,13 +447,19 @@ def business_detail(request: HttpRequest, business_id: int) -> HttpResponse:
     if business is None:
         return json_response({'error': 'Business not found.'}, status=404, request=request)
 
-    user_role, can_manage_business = get_business_access_context(request, business)
+    user_role = get_user_role(request.user)
+    owned_business = get_owned_business(request.user)
+    can_manage_business = (
+        user_role == DemoAccessProfile.Role.BUSINESS_OWNER
+        and owned_business is not None
+        and owned_business.pk == business.pk
+    )
 
     if not can_manage_business and not is_official_role(user_role):
         return json_response({'error': 'You do not have access to this business profile.'}, status=403, request=request)
 
     if request.method == 'GET':
-        return json_response({'business': serialize_business(business, include_workspace=can_manage_business)}, request=request)
+        return json_response({'business': serialize_business(business)}, request=request)
 
     if request.method != 'PATCH':
         return json_response({'error': 'Method not allowed.'}, status=405, request=request)
@@ -817,7 +529,13 @@ def credit_registration(request: HttpRequest, business_id: int) -> HttpResponse:
     if business is None:
         return json_response({'error': 'Business not found.'}, status=404, request=request)
 
-    user_role, can_manage_business = get_business_access_context(request, business)
+    user_role = get_user_role(request.user)
+    owned_business = get_owned_business(request.user)
+    can_manage_business = (
+        user_role == DemoAccessProfile.Role.BUSINESS_OWNER
+        and owned_business is not None
+        and owned_business.pk == business.pk
+    )
 
     if not can_manage_business and not is_official_role(user_role):
         return json_response({'error': 'You do not have access to this credit registration.'}, status=403, request=request)
@@ -878,245 +596,8 @@ def credit_registration(request: HttpRequest, business_id: int) -> HttpResponse:
     return json_response(
         {
             'message': 'Credit registration submitted.',
-            'business': serialize_business(business, include_workspace=can_manage_business),
+            'business': serialize_business(business),
             'verification': verification,
-        },
-        request=request,
-    )
-
-
-@csrf_exempt
-def business_stock_entries(request: HttpRequest, business_id: int) -> HttpResponse:
-    if request.method == 'OPTIONS':
-        return options_response(request)
-
-    if not request.user.is_authenticated:
-        return json_response({'error': 'Authentication required.'}, status=401, request=request)
-
-    if request.method != 'POST':
-        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
-
-    business = BusinessRegistration.objects.select_related('account_user').filter(pk=business_id).first()
-    if business is None:
-        return json_response({'error': 'Business not found.'}, status=404, request=request)
-
-    user_role, can_manage_business = get_business_access_context(request, business)
-    if not can_manage_business and not is_official_role(user_role):
-        return json_response({'error': 'You do not have access to this business workspace.'}, status=403, request=request)
-
-    if not can_manage_business:
-        return json_response({'error': 'Only the assigned business owner can add stock entries.'}, status=403, request=request)
-
-    try:
-        payload = parse_request_payload(request)
-    except json.JSONDecodeError:
-        return json_response({'error': 'Request body must be valid JSON.'}, status=400, request=request)
-
-    item_name = str(payload.get('item_name', '')).strip()
-    if not item_name:
-        return json_response({'error': 'Stock item name is required.'}, status=400, request=request)
-
-    try:
-        entry_date = parse_workspace_date(payload.get('date'), 'Entry date')
-        on_hand = parse_non_negative_int(payload.get('on_hand', 0), 'Current stock on hand')
-        received = parse_non_negative_int(payload.get('received', 0), 'Units received')
-        sold = parse_non_negative_int(payload.get('sold', 0), 'Units sold')
-        reorder_level = parse_non_negative_int(payload.get('reorder_level', 0), 'Reorder level')
-        selling_price = parse_non_negative_decimal(payload.get('selling_price', 0), 'Selling price')
-    except ValueError as exc:
-        return json_response({'error': str(exc)}, status=400, request=request)
-
-    workspace_payload = business.normalized_workspace_payload
-    stock_entries = [
-        {
-            'id': build_workspace_entry_id('stock'),
-            'date': entry_date.isoformat(),
-            'item_name': item_name,
-            'category': str(payload.get('category', '')).strip() or business.sector,
-            'unit': str(payload.get('unit', '')).strip() or 'units',
-            'on_hand': on_hand,
-            'received': received,
-            'sold': sold,
-            'reorder_level': reorder_level,
-            'selling_price': serialize_decimal(selling_price),
-        },
-        *workspace_payload['stock_entries'],
-    ][:40]
-
-    month_start = entry_date.replace(day=1)
-    month_key = month_start.isoformat()
-    monthly_sales = list(workspace_payload['monthly_sales'])
-    existing_month = next((entry for entry in monthly_sales if entry.get('month_start') == month_key), None)
-    revenue_delta = selling_price * Decimal(sold)
-    mobile_money_delta = (revenue_delta * Decimal('0.65')).quantize(Decimal('0.01'))
-    cash_delta = revenue_delta - mobile_money_delta
-    supplier_payments_delta = (selling_price * Decimal(received) * Decimal('0.55')).quantize(Decimal('0.01'))
-
-    if existing_month is None:
-        monthly_sales.append(
-            {
-                'id': build_workspace_entry_id('month'),
-                'month_start': month_key,
-                'label': month_start.strftime('%b'),
-                'revenue': serialize_decimal(revenue_delta),
-                'expenses': serialize_decimal(supplier_payments_delta),
-                'orders': sold,
-                'mobile_money': serialize_decimal(mobile_money_delta),
-                'cash_sales': serialize_decimal(cash_delta),
-                'supplier_payments': serialize_decimal(supplier_payments_delta),
-                'readiness_score': business.credit_score,
-            }
-        )
-    else:
-        existing_month['revenue'] = serialize_decimal(decimal_or_zero(existing_month.get('revenue')) + revenue_delta)
-        existing_month['expenses'] = serialize_decimal(decimal_or_zero(existing_month.get('expenses')) + supplier_payments_delta)
-        existing_month['orders'] = int_or_zero(existing_month.get('orders')) + sold
-        existing_month['mobile_money'] = serialize_decimal(decimal_or_zero(existing_month.get('mobile_money')) + mobile_money_delta)
-        existing_month['cash_sales'] = serialize_decimal(decimal_or_zero(existing_month.get('cash_sales')) + cash_delta)
-        existing_month['supplier_payments'] = serialize_decimal(decimal_or_zero(existing_month.get('supplier_payments')) + supplier_payments_delta)
-        existing_month['readiness_score'] = business.credit_score
-
-    monthly_sales.sort(key=lambda entry: str(entry.get('month_start', '')))
-    workspace_payload['stock_entries'] = stock_entries
-    workspace_payload['monthly_sales'] = monthly_sales[-12:]
-    business.workspace_payload = workspace_payload
-
-    try:
-        business.save(ledger_actor=request.user.get_username())
-    except Exception as exc:
-        return json_response({'error': str(exc)}, status=400, request=request)
-
-    return json_response(
-        {
-            'message': 'Stock entry saved.',
-            'business': serialize_business(business, include_workspace=True),
-        },
-        request=request,
-    )
-
-
-@csrf_exempt
-def business_documents(request: HttpRequest, business_id: int) -> HttpResponse:
-    if request.method == 'OPTIONS':
-        return options_response(request)
-
-    if not request.user.is_authenticated:
-        return json_response({'error': 'Authentication required.'}, status=401, request=request)
-
-    if request.method != 'POST':
-        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
-
-    business = BusinessRegistration.objects.select_related('account_user').filter(pk=business_id).first()
-    if business is None:
-        return json_response({'error': 'Business not found.'}, status=404, request=request)
-
-    user_role, can_manage_business = get_business_access_context(request, business)
-    if not can_manage_business and not is_official_role(user_role):
-        return json_response({'error': 'You do not have access to this business workspace.'}, status=403, request=request)
-
-    if not can_manage_business:
-        return json_response({'error': 'Only the assigned business owner can add documents.'}, status=403, request=request)
-
-    try:
-        payload = parse_request_payload(request)
-    except json.JSONDecodeError:
-        return json_response({'error': 'Request body must be valid JSON.'}, status=400, request=request)
-
-    name = str(payload.get('name', '')).strip()
-    if not name:
-        return json_response({'error': 'Document name is required.'}, status=400, request=request)
-
-    due_date = str(payload.get('due_date', '')).strip()
-    if due_date:
-        try:
-            parse_workspace_date(due_date, 'Document due date')
-        except ValueError as exc:
-            return json_response({'error': str(exc)}, status=400, request=request)
-
-    workspace_payload = business.normalized_workspace_payload
-    workspace_payload['documents'] = [
-        {
-            'id': build_workspace_entry_id('document'),
-            'name': name,
-            'type': str(payload.get('type', '')).strip(),
-            'reference': str(payload.get('reference', '')).strip(),
-            'due_date': due_date,
-            'status': str(payload.get('status', '')).strip() or 'Pending',
-        },
-        *workspace_payload['documents'],
-    ][:20]
-    business.workspace_payload = workspace_payload
-
-    try:
-        business.save(ledger_actor=request.user.get_username())
-    except Exception as exc:
-        return json_response({'error': str(exc)}, status=400, request=request)
-
-    return json_response(
-        {
-            'message': 'Document saved.',
-            'business': serialize_business(business, include_workspace=True),
-        },
-        request=request,
-    )
-
-
-@csrf_exempt
-def business_credit_draft(request: HttpRequest, business_id: int) -> HttpResponse:
-    if request.method == 'OPTIONS':
-        return options_response(request)
-
-    if not request.user.is_authenticated:
-        return json_response({'error': 'Authentication required.'}, status=401, request=request)
-
-    if request.method != 'PATCH':
-        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
-
-    business = BusinessRegistration.objects.select_related('account_user').filter(pk=business_id).first()
-    if business is None:
-        return json_response({'error': 'Business not found.'}, status=404, request=request)
-
-    user_role, can_manage_business = get_business_access_context(request, business)
-    if not can_manage_business and not is_official_role(user_role):
-        return json_response({'error': 'You do not have access to this business workspace.'}, status=403, request=request)
-
-    if not can_manage_business:
-        return json_response({'error': 'Only the assigned business owner can update the credit draft.'}, status=403, request=request)
-
-    try:
-        payload = parse_request_payload(request)
-    except json.JSONDecodeError:
-        return json_response({'error': 'Request body must be valid JSON.'}, status=400, request=request)
-
-    try:
-        requested_amount = parse_non_negative_decimal(payload.get('requested_amount', 0), 'Requested amount')
-        bookkeeping_score = min(parse_non_negative_int(payload.get('bookkeeping_score', 0), 'Bookkeeping score'), 100)
-        supplier_score = min(parse_non_negative_int(payload.get('supplier_score', 0), 'Supplier confidence'), 100)
-    except ValueError as exc:
-        return json_response({'error': str(exc)}, status=400, request=request)
-
-    workspace_payload = business.normalized_workspace_payload
-    workspace_payload['credit_draft'] = {
-        'requested_amount': serialize_decimal(requested_amount),
-        'loan_purpose': str(payload.get('loan_purpose', '')).strip(),
-        'repayment_window': str(payload.get('repayment_window', '')).strip(),
-        'bookkeeping_score': bookkeeping_score,
-        'supplier_score': supplier_score,
-        'collateral_notes': str(payload.get('collateral_notes', '')).strip(),
-        'registration_status': 'Database-backed draft',
-        'updated_at': timezone.now().isoformat(),
-    }
-    business.workspace_payload = workspace_payload
-
-    try:
-        business.save(ledger_actor=request.user.get_username())
-    except Exception as exc:
-        return json_response({'error': str(exc)}, status=400, request=request)
-
-    return json_response(
-        {
-            'message': 'Credit draft updated.',
-            'business': serialize_business(business, include_workspace=True),
         },
         request=request,
     )
