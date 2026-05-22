@@ -918,7 +918,7 @@ const buildAppData = async () => {
     return {
         appName: 'LedgerLift Uganda',
         tagline: 'Credit-ready records for informal businesses',
-        apiBaseUrl: 'https://ledgerlift-uganda-api.onrender.com/api',
+        apiBaseUrl: 'https://financial-app.onrender.com/api',
         staticMode: true,
         registrationForm: bootstrap.registrationForm || defaultBootstrap.registrationForm,
         demoAccounts: [],
