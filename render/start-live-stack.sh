@@ -36,26 +36,34 @@ PY
 
 trap cleanup EXIT INT TERM
 
+echo "Starting LedgerLift live proxy..."
 python "$ROOT_DIR/render/live_proxy.py" &
 PROXY_PID=$!
+echo "Proxy PID: $PROXY_PID"
+sleep 2
 
 cd "$BACKEND_DIR"
 echo "Running migrations..."
 timeout 120 python manage.py migrate --noinput 2>&1 | head -100 || echo "Migrations timed out or failed, continuing..."
 
-if [ "${LEDGERLIFT_SEED_ON_START:-1}" = "1" ]; then
+# Skip seeding on Render by default to avoid conflicts with existing data
+if [ "${LEDGERLIFT_SEED_ON_START:-0}" = "1" ]; then
     echo "Seeding demo data..."
     timeout 60 python manage.py seed_demo_data 2>&1 | head -100 || echo "Seed data timed out or failed, continuing..."
+else
+    echo "Skipping demo data seed (set LEDGERLIFT_SEED_ON_START=1 to enable)"
 fi
 
 echo "Starting gunicorn..."
 gunicorn ledgerlift_backend.wsgi:application --bind 127.0.0.1:8001 --access-logfile - --error-logfile - &
 GUNICORN_PID=$!
+echo "Gunicorn PID: $GUNICORN_PID"
 
 cd "$ROOT_DIR"
 echo "Starting PHP server..."
 php -S 127.0.0.1:8088 -t "$ROOT_DIR" &
 PHP_PID=$!
+echo "PHP PID: $PHP_PID"
 
 echo "Services started. Waiting for backend to be ready..."
 wait_for_url "http://127.0.0.1:8001/api/health/" || echo "Backend health check timeout, but continuing..."
