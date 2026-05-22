@@ -4,141 +4,97 @@ LedgerLift Uganda is a lightweight PHP MVP for a government-facing fintech pilot
 
 ## Stack
 
-- PHP
-- Django
-- Bootstrap 5
-- Vanilla JavaScript
+Render deployment is now designed around a single Dockerized web service that exposes the PHP frontend and the Django API on the same public host.
 - HTML and CSS
 - Chart.js via CDN
 
-## Project Structure
+This repo includes `render.yaml` so Render can create the unified web service and PostgreSQL database with one blueprint deploy.
 
 - `index.php` routes the requested page.
-- `app/data.php` contains realistic demo data for businesses, credit signals, and government insights.
+- `app/data.php` loads public dashboard, credit, and government bootstrap data from the Django API.
 - `app/views/` contains page templates.
 - `app/partials/` contains shared layout markup.
 - `assets/` contains custom CSS and JavaScript.
-- `backend/` contains the Django API for business registration, demo accounts, and future PostgreSQL integration.
+- `backend/` contains the Django API for authentication, business registration, platform bootstrap data, and owner workspace persistence.
 
 ## Run Locally
+- Health Check Path: `/api/health/`
 
-1. Install PHP 8 or newer if it is not already available.
-2. Install Python 3.14 or newer if it is not already available.
-3. From the project root, start both local services with `powershell -ExecutionPolicy Bypass -File .\run-local.ps1`.
-4. Open `http://127.0.0.1:8088` in your browser.
-
-### Manual Startup
-
-If you prefer to run each service yourself:
-
-1. In one terminal, run the PHP frontend with `php -S 127.0.0.1:8088` from the project root.
-2. In a second terminal, go to `backend/` and run:
-	- `python -m pip install -r requirements.txt`
+Render environment variables:
 	- `python manage.py makemigrations registry`
 	- `python manage.py migrate`
 	- `python manage.py seed_demo_data`
 	- `python manage.py runserver 127.0.0.1:8001`
 3. Open `http://127.0.0.1:8088` in your browser.
+- `LEDGERLIFT_API_BASE_URL=/api`
+- `LEDGERLIFT_INTERNAL_API_BASE_URL=http://127.0.0.1:8001/api`
 
 ### Local Notes
 
 - The main app uses the Django SQLite database at `backend/db.sqlite3` by default.
 - `run-local.ps1` starts the frontend on `127.0.0.1:8088` because port `8000` commonly conflicts with other local services.
-- The startup script checks ports before launching and tells you which process is blocking them if there is a conflict.
-- The Django API accepts local `localhost` and `127.0.0.1` frontend origins, so the login flow can still work when the PHP frontend is moved to another local port.
+- `DJANGO_ALLOWED_HOSTS=financial-app.onrender.com,127.0.0.1,localhost`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+- `LEDGERLIFT_ALLOWED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+## GitHub Pages Redirect
 
-## GitHub Pages Demo
+The live public host is `https://financial-app.onrender.com`.
 
-GitHub Pages cannot run the PHP frontend or the Django backend. To make demos work properly on GitHub Pages, this repo now includes a static demo build under `docs/`.
-
-- `docs/index.html` is the Pages entry point.
-- `docs/assets/js/demo.js` contains seeded data, client-side routing, demo login, and browser-stored registrations.
-- `docs/assets/css/demo.css` contains the standalone Pages styling.
-- `.github/workflows/deploy-pages.yml` deploys the `docs/` folder through GitHub Actions.
-
-### Demo Behavior
-
-- Demo registrations are stored in browser local storage.
-- Demo login uses the seeded showcase accounts client-side.
-- The static demo now includes a business-owner workspace with daily stock input, live graphs, monthly sales reporting, document tracking, and a front-end credit registration intake.
-- Charts, registry views, credit pages, and government views all work without a server.
-- Because `docs/` runs entirely in the browser, its local storage data is user-controlled and cannot be made tamper-proof. The signed ledger protection applies to the Django backend, not the static Pages demo.
+- `docs/index.html` now redirects directly to the live Render host instead of rendering a static database snapshot.
+- `.github/workflows/deploy-pages.yml` still publishes the `docs/` folder through GitHub Actions, but that Pages site now acts only as a handoff to the live app.
 
 ### Publishing
 
 1. Push the repo to GitHub.
 2. In the repository settings, set GitHub Pages to deploy from GitHub Actions.
-3. The `Deploy Pages Demo` workflow will publish the `docs/` folder.
-
-This keeps the local PHP and Django app available for full development while providing a Pages-safe demo build for stakeholders.
+3. The Pages workflow will publish the redirect page from `docs/`.
 
 ## Render Deployment
 
-Render deployment is split into two services in this repo:
-
-- `docs/` is the public static site.
-- `backend/` is the Django API service.
-
-The PHP frontend in `index.php` is still useful for local development, but the simplest Render path is the static `docs/` frontend plus the Django backend.
+Render deployment now runs as one Dockerized web service on the public host, with PHP serving `/`, Django serving `/api`, and a local reverse proxy routing both within the same container.
 
 ### Blueprint
 
-This repo now includes `render.yaml` so Render can create the static site, Django web service, and PostgreSQL database with one blueprint deploy.
+This repo includes `render.yaml` so Render can create the unified web service and PostgreSQL database with one blueprint deploy.
 
 ### Manual Render Values
 
-Static site:
-
-- Service type: `Static Site`
-- Name: `ledgerlift-uganda-demo`
-- Branch: `main`
-- Root Directory: leave blank
-- Build Command: `echo "static site ready"`
-- Publish Directory: `docs`
-
-Backend web service:
-
 - Service type: `Web Service`
-- Environment: `Python 3`
-- Name: `ledgerlift-uganda-api`
-- Branch: `main`
-- Root Directory: `backend`
-- Build Command: `pip install -r requirements.txt && python manage.py migrate && python manage.py seed_demo_data && python manage.py collectstatic --noinput`
-- Start Command: `gunicorn ledgerlift_backend.wsgi:application --bind 0.0.0.0:$PORT`
+- Name: `financial-app`
+- Environment: `Docker`
+- Dockerfile Path: `./Dockerfile`
+- Health Check Path: `/api/health/`
 
-Backend environment variables:
+Render environment variables:
 
 - `DJANGO_DEBUG=0`
 - `DJANGO_SECRET_KEY=<generate a long random value>`
 - `LEDGER_CHAIN_SECRET=<generate a second long random value reserved for ledger signing>`
 - `LEDGER_CHAIN_KEY_ID=render-primary`
+- `LEDGERLIFT_API_BASE_URL=/api`
+- `LEDGERLIFT_INTERNAL_API_BASE_URL=http://127.0.0.1:8001/api`
 - `NIRA_API_BASE_URL=<agency-issued NIRA verification endpoint>`
 - `NIRA_API_KEY=<agency-issued NIRA API key>`
 - `NITA_API_BASE_URL=<agency-issued NITA verification endpoint>`
 - `NITA_API_KEY=<agency-issued NITA API key>`
 - `UGANDA_IDENTITY_API_TIMEOUT=8`
-- `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
-- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
-- `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-demo.onrender.com`
+- `DJANGO_ALLOWED_HOSTS=financial-app.onrender.com,127.0.0.1,localhost`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+- `LEDGERLIFT_ALLOWED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `DATABASE_URL=<Render PostgreSQL connection string>`
 
-If you keep the default service names from `render.yaml`, those hostnames will match Render's generated URLs.
 Do not commit real NIRA or NITA credentials into the repository. Enter the live values directly in Render or your local environment file.
 For local development, Django now reads `backend/.env` automatically before it resolves these settings.
 
 ## App Flow
 
-- `Businesses` now loads live registrations from the Django API instead of the original mock PHP list.
-- `Login` authenticates against Django's seeded demo accounts.
-- `Workspace` shows a role-based control room for government, lender, field-agent, and business-owner users.
+- `Businesses` loads live registrations from the Django API.
+- `Login` authenticates against Django user records and no longer exposes quick-fill credentials in the UI.
+- `Workspace` shows a role-based control room for government, lender, field-agent, and business-owner users, with owner stock, document, and credit draft activity stored in the database.
 
-## Demo Accounts
+## Local Seed Data
 
-- Government officer: `gov.officer` / `GovDemo123!`
-- Lender: `lender.partner` / `LenderDemo123!`
-- Field agent: `field.agent` / `FieldDemo123!`
-
-These seeded demo accounts are designed to work even when a business does not yet have a live TIN.
+`python manage.py seed_demo_data` provisions sample official users, a linked owner account, public platform configuration, and database-backed business workspace data for local and deployment testing.
 
 ## SQL Search Result
 
@@ -149,4 +105,4 @@ I searched the accessible Desktop, Downloads, and Documents folders for `.sql` f
 1. Switch the Django database settings to PostgreSQL once the schema or SQL dump is ready.
 2. Add a URA tax lookup integration that validates the TIN and hydrates owner details.
 3. Connect mobile money and stock records to actual shop activity.
-4. Add authentication screens and role-specific dashboards on top of the seeded demo accounts.
+4. Replace the remaining legacy `docs/` showcase with the live API-backed frontend if GitHub Pages parity still matters.
