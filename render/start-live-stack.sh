@@ -8,7 +8,7 @@ export LEDGERLIFT_API_BASE_URL="${LEDGERLIFT_API_BASE_URL:-/api}"
 export LEDGERLIFT_INTERNAL_API_BASE_URL="${LEDGERLIFT_INTERNAL_API_BASE_URL:-http://127.0.0.1:8001/api}"
 
 cleanup() {
-    kill "${GUNICORN_PID:-0}" "${PHP_PID:-0}" 2>/dev/null || true
+    kill "${PROXY_PID:-0}" "${GUNICORN_PID:-0}" "${PHP_PID:-0}" 2>/dev/null || true
 }
 
 wait_for_url() {
@@ -36,6 +36,9 @@ PY
 
 trap cleanup EXIT INT TERM
 
+python "$ROOT_DIR/render/live_proxy.py" &
+PROXY_PID=$!
+
 cd "$BACKEND_DIR"
 python manage.py migrate --noinput
 
@@ -53,4 +56,4 @@ PHP_PID=$!
 wait_for_url "http://127.0.0.1:8001/api/health/"
 wait_for_url "http://127.0.0.1:8088/"
 
-exec python "$ROOT_DIR/render/live_proxy.py"
+wait "$PROXY_PID"
