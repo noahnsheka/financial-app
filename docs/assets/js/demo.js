@@ -71,6 +71,9 @@ const pages = {
     },
 };
 
+const primaryNavPages = ['dashboard', 'businesses', 'registration'];
+const overflowNavPages = ['credit', 'government'];
+
 const demoData = {
     heroStats: [
         { label: 'Districts in pilot', value: '12' },
@@ -2279,6 +2282,109 @@ const renderPage = (page, businesses, session) => {
     }
 };
 
+const renderPrimaryNavLinks = () => primaryNavPages.map((pageKey) => `
+    <a class='nav-link app-nav-link' href='#${escapeHtml(pageKey)}' data-nav-link='${escapeHtml(pageKey)}'>${escapeHtml(pages[pageKey].label)}</a>
+`).join('');
+
+const renderSidebarNavLinks = () => overflowNavPages.map((pageKey) => `
+    <a class='nav-sidebar-link' href='#${escapeHtml(pageKey)}' data-nav-link='${escapeHtml(pageKey)}'>
+        <span class='fw-semibold d-block'>${escapeHtml(pages[pageKey].label)}</span>
+        <small class='text-muted'>${escapeHtml(pages[pageKey].eyebrow)}</small>
+    </a>
+`).join('');
+
+const shellTemplate = () => `
+    <div class='container-fluid py-3 py-lg-4 position-relative app-shell'>
+        <header class='mb-3'>
+            <nav class='navbar navbar-expand-lg app-navbar px-3 px-lg-4 py-3'>
+                <a class='navbar-brand d-flex align-items-center gap-3' href='#dashboard'>
+                    <span class='brand-mark'>LL</span>
+                    <span class='brand-meta'>
+                        <strong class='d-block text-dark brand-name'>LedgerLift Uganda</strong>
+                        <small class='text-muted brand-tagline'>Shareable showcase for registry, credit, and owner workflows</small>
+                    </span>
+                </a>
+
+                <button class='navbar-toggler border-0' type='button' data-bs-toggle='collapse' data-bs-target='#demoAppNav' aria-controls='demoAppNav' aria-expanded='false' aria-label='Toggle navigation'>
+                    <span class='navbar-toggler-icon'></span>
+                </button>
+
+                <div class='collapse navbar-collapse' id='demoAppNav'>
+                    <div class='navbar-nav primary-nav ms-auto gap-lg-2'>
+                        ${renderPrimaryNavLinks()}
+                    </div>
+
+                    <div class='d-flex flex-column flex-lg-row align-items-lg-center gap-2 ms-lg-3 pt-3 pt-lg-0 auth-nav-actions'>
+                        <button class='btn btn-outline-dark btn-sm px-3 nav-sidebar-toggle' type='button' data-bs-toggle='offcanvas' data-bs-target='#demoSidebar' aria-controls='demoSidebar' data-nav-overflow-button>More</button>
+                        <a class='btn btn-outline-success btn-sm px-3' href='#login' data-login-link>Login</a>
+                        <a class='btn btn-warning btn-sm px-3 d-none' href='#workspace' data-workspace-link>Workspace</a>
+                        <button class='btn btn-link btn-sm px-2 text-decoration-none d-none' type='button' data-logout-button>Logout</button>
+                    </div>
+                </div>
+            </nav>
+
+            <div class='offcanvas offcanvas-end nav-sidebar' tabindex='-1' id='demoSidebar' aria-labelledby='demoSidebarLabel'>
+                <div class='offcanvas-header px-3 px-lg-4'>
+                    <div>
+                        <p class='section-kicker mb-2'>More navigation</p>
+                        <h2 class='h5 mb-0' id='demoSidebarLabel'>Additional sections</h2>
+                    </div>
+                    <button type='button' class='btn-close' data-bs-dismiss='offcanvas' aria-label='Close'></button>
+                </div>
+                <div class='offcanvas-body px-3 px-lg-4'>
+                    <div class='nav-sidebar-session'>
+                        <span class='auth-chip d-none' data-auth-status></span>
+                    </div>
+                    <div class='nav-sidebar-list'>
+                        ${renderSidebarNavLinks()}
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <section class='hero-panel mb-3' data-hero-panel>
+            <div class='row align-items-center g-3'>
+                <div class='col-lg-7'>
+                    <span class='eyebrow' data-hero-eyebrow>${escapeHtml(pages.dashboard.eyebrow)}</span>
+                    <h1 class='display-6 fw-semibold text-white mb-3' data-hero-title>${escapeHtml(pages.dashboard.title)}</h1>
+                    <p class='lead text-white-50 mb-3 hero-copy' data-hero-description>${escapeHtml(pages.dashboard.description)}</p>
+                    <div class='d-flex flex-wrap gap-3' data-hero-actions></div>
+                </div>
+
+                <div class='col-lg-5'>
+                    <div class='hero-card'>
+                        <p class='section-kicker mb-3'>Pilot pulse</p>
+                        <div class='row g-3' data-hero-stats></div>
+                        <div class='hero-note mt-3'>
+                            <strong class='d-block mb-2'>Pilot objective</strong>
+                            <p class='mb-0 text-muted'>Build enough operating visibility for government teams, lenders, and business owners to make decisions from one shared registry.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <main class='pb-4' data-page-root></main>
+    </div>
+`;
+
+const ensureShell = () => {
+    let root = document.querySelector('[data-page-root]');
+
+    if (root) {
+        return root;
+    }
+
+    const appRoot = document.getElementById('appRoot');
+
+    if (!appRoot) {
+        return null;
+    }
+
+    appRoot.innerHTML = shellTemplate();
+    return document.querySelector('[data-page-root]');
+};
+
 const updateHero = (page, session) => {
     const hero = pages[page] || pages.dashboard;
     const heroPanel = document.querySelector('[data-hero-panel]');
@@ -3094,7 +3200,7 @@ const renderApp = () => {
     const session = getSession();
     const page = getCurrentPage();
     const businesses = getBusinesses();
-    const root = document.querySelector('[data-page-root]');
+    const root = ensureShell();
 
     if (!session?.user && !publicPages.has(page)) {
         setCurrentPage('dashboard');
@@ -3105,6 +3211,10 @@ const renderApp = () => {
         setCurrentPage('workspace');
         return;
     }
+
+    document.body.dataset.page = page;
+    document.body.classList.remove('auth-pending');
+    document.body.classList.toggle('is-authenticated', Boolean(session?.user));
 
     updateHero(page, session);
     updateNavigation(page, session);
