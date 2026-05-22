@@ -94,23 +94,6 @@ REVENUE_BAND_MIDPOINTS = {
 }
 
 
-def default_platform_registration_form() -> dict:
-    return {
-        'districts': [],
-        'sectors': [],
-        'revenueBands': [],
-    }
-
-
-def default_owner_workspace_payload() -> dict:
-    return {
-        'credit_draft': {},
-        'documents': [],
-        'monthly_sales': [],
-        'stock_entries': [],
-    }
-
-
 def hash_ledger_block(*, chain_index: int, previous_hash: str, business_id: int, operation: str, payload: dict) -> str:
     block_payload = {
         'business_id': business_id,
@@ -120,25 +103,6 @@ def hash_ledger_block(*, chain_index: int, previous_hash: str, business_id: int,
         'previous_hash': previous_hash,
     }
     return hash_serialized_payload(block_payload)
-
-
-class PlatformConfiguration(models.Model):
-    singleton_id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
-    registration_form = models.JSONField(default=default_platform_registration_form)
-    score_breakdown = models.JSONField(default=list)
-    loan_programs = models.JSONField(default=list)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = 'platform configuration'
-        verbose_name_plural = 'platform configuration'
-
-    def save(self, *args, **kwargs):
-        self.singleton_id = 1
-        return super().save(*args, **kwargs)
-
-    def __str__(self) -> str:
-        return 'Platform configuration'
 
 
 class BusinessRegistration(models.Model):
@@ -197,7 +161,6 @@ class BusinessRegistration(models.Model):
     credit_registration_reference = models.CharField(max_length=60, blank=True)
     credit_registration_submitted_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
-    workspace_payload = models.JSONField(default=default_owner_workspace_payload, blank=True)
     account_user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -268,7 +231,6 @@ class BusinessRegistration(models.Model):
             'stock_focus': self.stock_focus,
             'tax_lookup_status': self.tax_lookup_status,
             'tin_number': self.tin_number,
-            'workspace_payload': self.normalized_workspace_payload,
         }
 
     def save(self, *args, **kwargs):
@@ -331,88 +293,6 @@ class BusinessRegistration(models.Model):
                 payload=pending_payload,
             )
             return result
-
-    @property
-    def normalized_workspace_payload(self) -> dict:
-        payload = self.workspace_payload if isinstance(self.workspace_payload, dict) else {}
-        monthly_sales = payload.get('monthly_sales') if isinstance(payload.get('monthly_sales'), list) else []
-        documents = payload.get('documents') if isinstance(payload.get('documents'), list) else []
-        stock_entries = payload.get('stock_entries') if isinstance(payload.get('stock_entries'), list) else []
-        credit_draft = payload.get('credit_draft') if isinstance(payload.get('credit_draft'), dict) else {}
-
-        normalized_monthly_sales = []
-        for entry in monthly_sales:
-            if not isinstance(entry, dict):
-                continue
-
-            normalized_monthly_sales.append(
-                {
-                    'id': str(entry.get('id', '')).strip(),
-                    'month_start': str(entry.get('month_start', '')).strip(),
-                    'label': str(entry.get('label', '')).strip(),
-                    'revenue': serialize_decimal(entry.get('revenue')),
-                    'expenses': serialize_decimal(entry.get('expenses')),
-                    'orders': int_or_zero(entry.get('orders')),
-                    'mobile_money': serialize_decimal(entry.get('mobile_money')),
-                    'cash_sales': serialize_decimal(entry.get('cash_sales')),
-                    'supplier_payments': serialize_decimal(entry.get('supplier_payments')),
-                    'readiness_score': int_or_zero(entry.get('readiness_score')),
-                }
-            )
-
-        normalized_documents = []
-        for entry in documents:
-            if not isinstance(entry, dict):
-                continue
-
-            normalized_documents.append(
-                {
-                    'id': str(entry.get('id', '')).strip(),
-                    'name': str(entry.get('name', '')).strip(),
-                    'type': str(entry.get('type', '')).strip(),
-                    'reference': str(entry.get('reference', '')).strip(),
-                    'due_date': str(entry.get('due_date', '')).strip(),
-                    'status': str(entry.get('status', '')).strip(),
-                }
-            )
-
-        normalized_stock_entries = []
-        for entry in stock_entries:
-            if not isinstance(entry, dict):
-                continue
-
-            normalized_stock_entries.append(
-                {
-                    'id': str(entry.get('id', '')).strip(),
-                    'date': str(entry.get('date', '')).strip(),
-                    'item_name': str(entry.get('item_name', '')).strip(),
-                    'category': str(entry.get('category', '')).strip(),
-                    'unit': str(entry.get('unit', '')).strip(),
-                    'on_hand': int_or_zero(entry.get('on_hand')),
-                    'received': int_or_zero(entry.get('received')),
-                    'sold': int_or_zero(entry.get('sold')),
-                    'reorder_level': int_or_zero(entry.get('reorder_level')),
-                    'selling_price': serialize_decimal(entry.get('selling_price')),
-                }
-            )
-
-        normalized_credit_draft = {
-            'requested_amount': serialize_decimal(credit_draft.get('requested_amount')),
-            'loan_purpose': str(credit_draft.get('loan_purpose', '')).strip(),
-            'repayment_window': str(credit_draft.get('repayment_window', '')).strip(),
-            'bookkeeping_score': int_or_zero(credit_draft.get('bookkeeping_score')),
-            'supplier_score': int_or_zero(credit_draft.get('supplier_score')),
-            'collateral_notes': str(credit_draft.get('collateral_notes', '')).strip(),
-            'registration_status': str(credit_draft.get('registration_status', '')).strip(),
-            'updated_at': str(credit_draft.get('updated_at', '')).strip(),
-        }
-
-        return {
-            'credit_draft': normalized_credit_draft,
-            'documents': normalized_documents,
-            'monthly_sales': normalized_monthly_sales,
-            'stock_entries': normalized_stock_entries,
-        }
 
     @property
     def profile_score(self) -> int:
