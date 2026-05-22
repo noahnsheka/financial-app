@@ -1,7 +1,28 @@
 <?php
 declare(strict_types=1);
 
-$apiBaseUrl = getenv('LEDGERLIFT_API_BASE_URL') ?: 'http://127.0.0.1:8001/api';
+function normalizeApiBaseUrl(string $value): string
+{
+    return rtrim(trim($value), '/');
+}
+
+function requestHostName(): string
+{
+    $host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1';
+    return (string) preg_replace('/:\\d+$/', '', $host);
+}
+
+function isLocalRequestHost(string $host): bool
+{
+    return in_array($host, ['127.0.0.1', 'localhost'], true);
+}
+
+$requestHost = requestHostName();
+$defaultPublicApiBaseUrl = isLocalRequestHost($requestHost) ? 'http://127.0.0.1:8001/api' : '/api';
+$publicApiBaseUrl = normalizeApiBaseUrl(getenv('LEDGERLIFT_API_BASE_URL') ?: $defaultPublicApiBaseUrl);
+$internalApiBaseUrl = normalizeApiBaseUrl(
+    getenv('LEDGERLIFT_INTERNAL_API_BASE_URL') ?: 'http://127.0.0.1:8001/api'
+);
 
 function fetchApiPayload(string $url): array
 {
@@ -22,12 +43,12 @@ function fetchApiPayload(string $url): array
     return is_array($decoded) ? $decoded : [];
 }
 
-$bootstrap = fetchApiPayload(rtrim($apiBaseUrl, '/') . '/platform/bootstrap/');
+$bootstrap = fetchApiPayload($internalApiBaseUrl . '/platform/bootstrap/');
 
 return [
     'appName' => 'LedgerLift Uganda',
     'tagline' => 'Credit-ready records for informal businesses',
-    'apiBaseUrl' => $apiBaseUrl,
+    'apiBaseUrl' => $publicApiBaseUrl,
     'registrationForm' => $bootstrap['registrationForm'] ?? [
         'districts' => [],
         'sectors' => [],

@@ -4,14 +4,11 @@ LedgerLift Uganda is a lightweight PHP MVP for a government-facing fintech pilot
 
 ## Stack
 
-- PHP
-- Django
-- Bootstrap 5
-- Vanilla JavaScript
+Render deployment is now designed around a single Dockerized web service that exposes the PHP frontend and the Django API on the same public host.
 - HTML and CSS
 - Chart.js via CDN
 
-## Project Structure
+This repo includes `render.yaml` so Render can create the unified web service and PostgreSQL database with one blueprint deploy.
 
 - `index.php` routes the requested page.
 - `app/data.php` loads public dashboard, credit, and government bootstrap data from the Django API.
@@ -21,35 +18,27 @@ LedgerLift Uganda is a lightweight PHP MVP for a government-facing fintech pilot
 - `backend/` contains the Django API for authentication, business registration, platform bootstrap data, and owner workspace persistence.
 
 ## Run Locally
+- Health Check Path: `/api/health/`
 
-1. Install PHP 8 or newer if it is not already available.
-2. Install Python 3.14 or newer if it is not already available.
-3. From the project root, start both local services with `powershell -ExecutionPolicy Bypass -File .\run-local.ps1`.
-4. Open `http://127.0.0.1:8088` in your browser.
-
-### Manual Startup
-
-If you prefer to run each service yourself:
-
-1. In one terminal, run the PHP frontend with `php -S 127.0.0.1:8088` from the project root.
-2. In a second terminal, go to `backend/` and run:
-	- `python -m pip install -r requirements.txt`
+Render environment variables:
 	- `python manage.py makemigrations registry`
 	- `python manage.py migrate`
 	- `python manage.py seed_demo_data`
 	- `python manage.py runserver 127.0.0.1:8001`
 3. Open `http://127.0.0.1:8088` in your browser.
+- `LEDGERLIFT_API_BASE_URL=/api`
+- `LEDGERLIFT_INTERNAL_API_BASE_URL=http://127.0.0.1:8001/api`
 
 ### Local Notes
 
 - The main app uses the Django SQLite database at `backend/db.sqlite3` by default.
 - `run-local.ps1` starts the frontend on `127.0.0.1:8088` because port `8000` commonly conflicts with other local services.
-- The startup script checks ports before launching and tells you which process is blocking them if there is a conflict.
-- The Django API accepts local `localhost` and `127.0.0.1` frontend origins, so the login flow can still work when the PHP frontend is moved to another local port.
-
+- `DJANGO_ALLOWED_HOSTS=financial-app.onrender.com,127.0.0.1,localhost`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+- `LEDGERLIFT_ALLOWED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 ## GitHub Pages Demo
 
-GitHub Pages cannot run the PHP frontend or the Django backend. The static build under `docs/` now renders a read-only frontend preview from JSON files exported out of the local Django database.
+The live public host should be `https://financial-app.onrender.com`, with the frontend calling `/api/...` on that same origin instead of a second public backend hostname.
 
 - `docs/index.html` is the Pages entry point.
 - `docs/assets/js/demo.js` renders the static app shell and loads the shared frontend runtime.

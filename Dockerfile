@@ -1,8 +1,19 @@
-FROM php:8.2-cli
+FROM python:3.12-slim
 
-WORKDIR /var/www/html
-COPY index.php /var/www/html/index.php
-COPY app /var/www/html/app
-COPY assets /var/www/html/assets
+ENV PYTHONDONTWRITEBYTECODE=1 \
+	PYTHONUNBUFFERED=1
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-10000} -t /var/www/html"]
+WORKDIR /app
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends php-cli \
+	&& rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+COPY . /app
+
+RUN chmod +x /app/render/start-live-stack.sh
+
+CMD ["/app/render/start-live-stack.sh"]
