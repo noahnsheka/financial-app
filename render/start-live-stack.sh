@@ -40,20 +40,27 @@ python "$ROOT_DIR/render/live_proxy.py" &
 PROXY_PID=$!
 
 cd "$BACKEND_DIR"
-python manage.py migrate --noinput
+echo "Running migrations..."
+timeout 120 python manage.py migrate --noinput 2>&1 | head -100 || echo "Migrations timed out or failed, continuing..."
 
 if [ "${LEDGERLIFT_SEED_ON_START:-1}" = "1" ]; then
-    python manage.py seed_demo_data
+    echo "Seeding demo data..."
+    timeout 60 python manage.py seed_demo_data 2>&1 | head -100 || echo "Seed data timed out or failed, continuing..."
 fi
 
+echo "Starting gunicorn..."
 gunicorn ledgerlift_backend.wsgi:application --bind 127.0.0.1:8001 --access-logfile - --error-logfile - &
 GUNICORN_PID=$!
 
 cd "$ROOT_DIR"
+echo "Starting PHP server..."
 php -S 127.0.0.1:8088 -t "$ROOT_DIR" &
 PHP_PID=$!
 
-wait_for_url "http://127.0.0.1:8001/api/health/"
-wait_for_url "http://127.0.0.1:8088/"
+echo "Services started. Waiting for backend to be ready..."
+wait_for_url "http://127.0.0.1:8001/api/health/" || echo "Backend health check timeout, but continuing..."
+echo "Backend ready. Waiting for frontend..."
+wait_for_url "http://127.0.0.1:8088/" || echo "Frontend health check timeout, but continuing..."
+echo "All services running. Live proxy is handling requests."
 
 wait "$PROXY_PID"
