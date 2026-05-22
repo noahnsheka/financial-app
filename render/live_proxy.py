@@ -7,6 +7,8 @@ LISTEN_PORT = int(os.environ.get('PORT', '10000'))
 BACKEND_PORT = 8001
 FRONTEND_PORT = 8088
 BACKEND_PREFIXES = ('/api', '/admin')
+REQUEST_HEADER_EXCLUSIONS = {'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade'}
+RESPONSE_HEADER_EXCLUSIONS = REQUEST_HEADER_EXCLUSIONS | {'content-length', 'server', 'date', 'host'}
 
 
 class LiveProxyHandler(BaseHTTPRequestHandler):
@@ -44,7 +46,7 @@ class LiveProxyHandler(BaseHTTPRequestHandler):
 
         headers = {}
         for key, value in self.headers.items():
-            if key.lower() in {'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade'}:
+            if key.lower() in REQUEST_HEADER_EXCLUSIONS:
                 continue
             headers[key] = value
 
@@ -74,7 +76,7 @@ class LiveProxyHandler(BaseHTTPRequestHandler):
             self.send_response(response.status, response.reason)
 
             for key, value in response.getheaders():
-                if key.lower() in {'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade'}:
+                if key.lower() in RESPONSE_HEADER_EXCLUSIONS:
                     continue
                 self.send_header(key, value)
 
