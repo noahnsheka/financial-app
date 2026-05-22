@@ -53,7 +53,7 @@ const pages = {
         label: 'Login',
         eyebrow: 'Demo access',
         title: 'Sign in with seeded demo accounts',
-        description: 'Use seeded credentials to demonstrate role-based access and guided workspaces.',
+        description: 'Use seeded credentials or create a business-owner account to demonstrate role-based access and guided workspaces.',
         ctas: [
             { label: 'Use demo accounts', page: 'login', kind: 'primary' },
             { label: 'Open workspace', page: 'workspace', kind: 'secondary' },
@@ -63,7 +63,7 @@ const pages = {
         label: 'Workspace',
         eyebrow: 'Role control room',
         title: 'Open a role-based demo workspace',
-        description: 'After signing in, the showcase tailors the workspace to government, lender, or field-agent stories using the same seeded records.',
+        description: 'After signing in, the showcase tailors the workspace to government, lender, field-agent, or business-owner stories using the same seeded records.',
         ctas: [
             { label: 'Go to login', page: 'login', kind: 'primary' },
             { label: 'Open registry', page: 'businesses', kind: 'secondary' },
@@ -107,6 +107,15 @@ const demoData = {
             role: 'field_agent',
             roleLabel: 'Field agent',
             note: 'Use this account to onboard shops without a live TIN in showcase mode.',
+        },
+        {
+            displayName: 'Paul Ssenfuka',
+            username: 'paul.owner',
+            password: 'OwnerDemo123!',
+            role: 'business_owner',
+            roleLabel: 'Business owner',
+            note: 'Use this account to walk through the owner workspace, stock tracker, and credit intake.',
+            businessId: 'seed-owner-001',
         },
     ],
     seededBusinesses: [
@@ -206,6 +215,29 @@ const demoData = {
             is_demo_account: false,
             created_at: '2026-05-13T11:00:00Z',
         },
+        {
+            id: 'seed-owner-001',
+            business_name: 'Wakiso Home Goods',
+            owner_name: 'Paul Ssenfuka',
+            phone_number: '+256700000202',
+            mobile_money_number: '+256700000202',
+            tin_number: '1002003004',
+            district: 'Wakiso',
+            sector: 'Household goods',
+            location_description: 'Bwebajja trading center',
+            stock_focus: 'Cleaning supplies, cooking oil, tissue packs',
+            monthly_revenue_band: 'UGX 6M - 10M',
+            inventory_value_estimate: 2800000,
+            average_monthly_profit: 980000,
+            average_monthly_mobile_money: 4700000,
+            receipt_count: 14,
+            receipt_value_total: 4200000,
+            employee_count: 4,
+            is_demo_account: false,
+            account_username: 'paul.owner',
+            created_at: '2026-05-19T10:20:00Z',
+            updated_at: '2026-05-21T08:45:00Z',
+        },
     ],
     collections: {
         labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
@@ -264,6 +296,8 @@ const storageKeys = {
     session: 'ledgerlift.pages.session',
     registrations: 'ledgerlift.pages.registrations',
     accounts: 'ledgerlift.pages.accounts',
+    businessEdits: 'ledgerlift.pages.businessEdits',
+    ownerWorkspace: 'ledgerlift.pages.ownerWorkspace',
     flash: 'ledgerlift.pages.flash',
 };
 
@@ -316,6 +350,16 @@ const roleBlueprints = {
             { title: 'Register a new shop', detail: 'Open the onboarding flow and capture the next business into the pilot.', href: '#registration', cta: 'Open registration' },
             { title: 'Review incomplete profiles', detail: 'Use the live registry to identify businesses that still need TIN or revenue details.', href: '#businesses', cta: 'Open business registry' },
         ],
+    },
+    business_owner: {
+        workspaceTitle: 'Business owner workspace',
+        workspaceDescription: 'Log daily stock, review live business graphs, organize documents, and prepare a credit pack from one owner dashboard.',
+        notes: [
+            'Keep stock movement current every day so the monthly report stays believable.',
+            'Track the documents lenders and compliance teams will ask for before a financing conversation.',
+            'Use the front-end credit intake as a working draft before backend underwriting is wired in.',
+        ],
+        actions: [],
     },
 };
 
@@ -384,20 +428,387 @@ const saveStoredRegistrations = (registrations) => writeStorage(storageKeys.regi
 const getStoredAccounts = () => readStorage(storageKeys.accounts, []);
 const saveStoredAccounts = (accounts) => writeStorage(storageKeys.accounts, accounts);
 const getDemoAccounts = () => [...demoData.demoAccounts, ...getStoredAccounts()];
+const getStoredBusinessEdits = () => readStorage(storageKeys.businessEdits, {});
+const saveStoredBusinessEdits = (edits) => writeStorage(storageKeys.businessEdits, edits);
+
+const ugxFormatter = new Intl.NumberFormat('en-UG', {
+    style: 'currency',
+    currency: 'UGX',
+    maximumFractionDigits: 0,
+});
+
+const revenueBandMidpoints = {
+    'Below UGX 1M': 500000,
+    'UGX 1M - 3M': 2000000,
+    'UGX 3M - 6M': 4500000,
+    'UGX 6M - 10M': 8000000,
+    'Above UGX 10M': 12000000,
+};
+
+const toNumber = (value) => {
+    const parsed = Number.parseFloat(String(value ?? '0').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const clampScoreValue = (value) => Math.max(0, Math.min(100, Math.round(toNumber(value))));
+
+const averageValue = (values) => values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
+
+const formatCurrencyUGX = (value) => ugxFormatter.format(toNumber(value));
+
+const formatSignedCurrencyUGX = (value) => {
+    const numericValue = toNumber(value);
+    return `${numericValue >= 0 ? '+' : '-'}${formatCurrencyUGX(Math.abs(numericValue))}`;
+};
+
+const formatWorkspaceDate = (value) => {
+    if (!value) {
+        return 'Not yet saved';
+    }
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime())
+        ? 'Not yet saved'
+        : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const buildRelativeIsoDate = (daysAgo = 0) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - daysAgo);
+    return date.toISOString().slice(0, 10);
+};
+
+const buildFutureIsoDate = (monthsAhead = 0) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setMonth(date.getMonth() + monthsAhead);
+    return date.toISOString().slice(0, 10);
+};
+
+const buildTrailingMonthLabels = () => Array.from({ length: 6 }, (_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(1);
+    date.setMonth(date.getMonth() - (5 - index));
+    return date.toLocaleDateString(undefined, { month: 'short' });
+});
+
+const getOwnerWorkspaceItems = (business) => {
+    const parsedItems = String(business?.stock_focus || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    return parsedItems.length ? parsedItems : ['Fast movers', 'Core groceries', 'Seasonal stock'];
+};
+
+const buildOwnerSeedMonthlySales = (business) => {
+    const labels = buildTrailingMonthLabels();
+    const revenueBase = Math.max(
+        toNumber(business?.average_monthly_mobile_money) + toNumber(business?.average_monthly_profit),
+        toNumber(business?.inventory_value_estimate),
+        1800000,
+    );
+
+    return labels.map((label, index) => {
+        const multiplier = 0.8 + (index * 0.07);
+        const revenue = Math.round((revenueBase * multiplier) / 1000) * 1000;
+        return {
+            id: `seed-sales-${label.toLowerCase()}`,
+            label,
+            revenue,
+            expenses: Math.round(revenue * 0.68),
+            orders: 84 + (index * 12),
+        };
+    });
+};
+
+const buildOwnerSeedStockEntries = (business) => {
+    const items = getOwnerWorkspaceItems(business);
+    const priceHint = Math.max(
+        Math.round(Math.max(toNumber(business?.average_monthly_profit) / 45, 2500) / 100) * 100,
+        2500,
+    );
+
+    return items.slice(0, 3).map((item, index) => ({
+        id: `seed-stock-${index}`,
+        date: buildRelativeIsoDate(2 - index),
+        item_name: item,
+        category: business?.sector || 'Retail',
+        unit: 'units',
+        on_hand: Math.max(8, 38 - (index * 7)),
+        received: 12 + (index * 4),
+        sold: 7 + (index * 3),
+        reorder_level: 12 + (index * 2),
+        selling_price: priceHint,
+    }));
+};
+
+const buildOwnerSeedDocuments = (business) => [
+    {
+        id: 'seed-doc-licence',
+        name: 'Trading licence',
+        type: 'Compliance',
+        reference: `${String(business?.district || 'BUS').slice(0, 3).toUpperCase()}-2026-114`,
+        due_date: buildFutureIsoDate(1),
+        status: 'Ready',
+    },
+    {
+        id: 'seed-doc-finance',
+        name: 'Mobile money statement',
+        type: 'Finance',
+        reference: 'Last 90 days',
+        due_date: buildFutureIsoDate(0),
+        status: 'Ready',
+    },
+    {
+        id: 'seed-doc-tax',
+        name: 'TIN and tax summary',
+        type: 'Tax',
+        reference: business?.tin_number || 'Pending TIN capture',
+        due_date: '',
+        status: business?.tin_number ? 'Ready' : 'Pending',
+    },
+];
+
+const buildOwnerSeedCreditProfile = (business, monthlySales) => {
+    const averageMonthlyRevenue = averageValue(monthlySales.map((entry) => toNumber(entry.revenue)));
+
+    return {
+        requested_amount: Math.max(350000, Math.round((averageMonthlyRevenue * 0.35) / 1000) * 1000),
+        loan_purpose: `Increase ${getOwnerWorkspaceItems(business)[0].toLowerCase()} stock depth`,
+        repayment_window: '6 months',
+        bookkeeping_score: clampScoreValue((business?.receipt_trust_score || 0) || 72),
+        supplier_score: clampScoreValue((business?.consistency_score || 0) || 74),
+        collateral_notes: 'Inventory, receipt trail, and mobile-money record available for review.',
+        registration_status: 'Draft front-end intake',
+    };
+};
+
+const normalizeOwnerWorkspaceData = (value, business) => {
+    const seedMonthlySales = buildOwnerSeedMonthlySales(business);
+    const seed = {
+        stockEntries: buildOwnerSeedStockEntries(business),
+        monthlySales: seedMonthlySales,
+        documents: buildOwnerSeedDocuments(business),
+        creditProfile: buildOwnerSeedCreditProfile(business, seedMonthlySales),
+    };
+
+    return {
+        stockEntries: Array.isArray(value?.stockEntries) && value.stockEntries.length > 0
+            ? value.stockEntries
+            : seed.stockEntries,
+        monthlySales: Array.isArray(value?.monthlySales) && value.monthlySales.length > 0
+            ? value.monthlySales
+            : seed.monthlySales,
+        documents: Array.isArray(value?.documents) && value.documents.length > 0
+            ? value.documents
+            : seed.documents,
+        creditProfile: {
+            ...seed.creditProfile,
+            ...(value?.creditProfile || {}),
+        },
+    };
+};
+
+const getOwnerWorkspaceData = (business) => {
+    if (!business?.id) {
+        return normalizeOwnerWorkspaceData({}, business || {});
+    }
+
+    const store = readStorage(storageKeys.ownerWorkspace, {});
+    const normalized = normalizeOwnerWorkspaceData(store[business.id], business);
+    writeStorage(storageKeys.ownerWorkspace, { ...store, [business.id]: normalized });
+    return normalized;
+};
+
+const updateOwnerWorkspaceData = (business, updater) => {
+    if (!business?.id) {
+        return null;
+    }
+
+    const store = readStorage(storageKeys.ownerWorkspace, {});
+    const current = normalizeOwnerWorkspaceData(store[business.id], business);
+    const nextValue = typeof updater === 'function'
+        ? updater(current)
+        : { ...current, ...updater };
+    const normalized = normalizeOwnerWorkspaceData(nextValue, business);
+
+    writeStorage(storageKeys.ownerWorkspace, { ...store, [business.id]: normalized });
+    return normalized;
+};
+
+const saveBusinessEdit = (businessId, updates) => {
+    const edits = getStoredBusinessEdits();
+    const nextEdit = {
+        ...(edits[businessId] || {}),
+        ...updates,
+        updated_at: new Date().toISOString(),
+    };
+
+    saveStoredBusinessEdits({
+        ...edits,
+        [businessId]: nextEdit,
+    });
+
+    return nextEdit;
+};
+
+const getLatestOwnerStockEntries = (stockEntries) => {
+    const seenItems = new Set();
+
+    return [...stockEntries]
+        .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))
+        .filter((entry) => {
+            const key = String(entry.item_name || '').trim().toLowerCase();
+
+            if (!key || seenItems.has(key)) {
+                return false;
+            }
+
+            seenItems.add(key);
+            return true;
+        });
+};
+
+const buildOwnerCreditPreview = (business, ownerData, latestStock, averageRevenue, readyDocuments) => {
+    const inventoryDiscipline = latestStock.length
+        ? Math.round(averageValue(
+            latestStock.map((entry) => (toNumber(entry.on_hand) > toNumber(entry.reorder_level) ? 88 : 54)),
+        ))
+        : 55;
+    const documentCoverage = ownerData.documents.length
+        ? Math.round((readyDocuments / ownerData.documents.length) * 100)
+        : 0;
+    const requestedAmount = toNumber(ownerData.creditProfile.requested_amount);
+    const revenueCoverage = averageRevenue > 0 ? requestedAmount / averageRevenue : 0;
+    const affordability = averageRevenue > 0
+        ? clampScoreValue(100 - Math.max(0, (revenueCoverage - 0.45) * 120))
+        : 40;
+
+    const score = clampScoreValue(
+        ((business.credit_score || 0) * 0.3)
+        + ((business.profile_score || 0) * 0.15)
+        + (documentCoverage * 0.15)
+        + (inventoryDiscipline * 0.15)
+        + (clampScoreValue(ownerData.creditProfile.bookkeeping_score) * 0.1)
+        + (clampScoreValue(ownerData.creditProfile.supplier_score) * 0.1)
+        + (affordability * 0.05),
+    );
+
+    const band = score >= 82
+        ? 'Investor-ready'
+        : score >= 70
+            ? 'Growth-ready'
+            : score >= 58
+                ? 'Needs more evidence'
+                : 'Early-stage';
+
+    const note = band === 'Investor-ready'
+        ? 'The current operating evidence is strong enough for a lender-facing conversation.'
+        : band === 'Growth-ready'
+            ? 'The credit pack is close. Keep stock updates and business documents current to move higher.'
+            : band === 'Needs more evidence'
+                ? 'Add stronger stock history, recent documents, and bookkeeping discipline before external review.'
+                : 'Build a fuller operating history before starting a lender discussion.';
+
+    return {
+        score,
+        band,
+        note,
+        documentCoverage,
+        affordability,
+        inventoryDiscipline,
+    };
+};
+
+const buildOwnerWorkspaceAnalytics = (business, ownerData) => {
+    const latestStock = getLatestOwnerStockEntries(ownerData.stockEntries || []);
+    const lowStockCount = latestStock.filter((entry) => toNumber(entry.on_hand) <= toNumber(entry.reorder_level)).length;
+    const totalOnHand = latestStock.reduce((sum, entry) => sum + toNumber(entry.on_hand), 0);
+    const weeklyUnitsSold = (ownerData.stockEntries || [])
+        .filter((entry) => {
+            const entryDate = new Date(entry.date);
+            const today = new Date();
+            const diffInDays = (today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24);
+            return Number.isFinite(diffInDays) && diffInDays <= 7;
+        })
+        .reduce((sum, entry) => sum + toNumber(entry.sold), 0);
+    const totalRevenue = (ownerData.monthlySales || []).reduce((sum, entry) => sum + toNumber(entry.revenue), 0);
+    const averageRevenue = averageValue((ownerData.monthlySales || []).map((entry) => toNumber(entry.revenue)));
+    const grossMargin = Math.round(averageValue(
+        (ownerData.monthlySales || []).map((entry) => {
+            const revenue = toNumber(entry.revenue);
+            return revenue > 0 ? ((revenue - toNumber(entry.expenses)) / revenue) * 100 : 0;
+        }),
+    ));
+    const bestMonth = (ownerData.monthlySales || []).reduce((best, entry) => (
+        toNumber(entry.revenue) > toNumber(best.revenue) ? entry : best
+    ), ownerData.monthlySales?.[0] || { label: 'N/A', revenue: 0 });
+    const firstMonth = ownerData.monthlySales?.[0];
+    const lastMonth = ownerData.monthlySales?.[ownerData.monthlySales.length - 1];
+    const salesMomentum = firstMonth && lastMonth
+        ? toNumber(lastMonth.revenue) - toNumber(firstMonth.revenue)
+        : 0;
+    const readyDocuments = (ownerData.documents || []).filter((document) => ['ready', 'submitted', 'verified', 'active'].includes(String(document.status || '').trim().toLowerCase())).length;
+    const creditPreview = buildOwnerCreditPreview(business, ownerData, latestStock, averageRevenue, readyDocuments);
+
+    return {
+        latestStock,
+        lowStockCount,
+        totalOnHand,
+        weeklyUnitsSold,
+        totalRevenue,
+        grossMargin,
+        bestMonth,
+        currentMonth: lastMonth || { label: 'This month', revenue: 0, orders: 0, expenses: 0 },
+        salesMomentum,
+        readyDocuments,
+        documentCount: ownerData.documents?.length || 0,
+        creditPreview,
+    };
+};
+
+const getOwnerBusiness = (user, businesses) => businesses.find((business) => String(business.id) === String(user?.business_id || ''))
+    || businesses.find((business) => String(business.account_username || '').toLowerCase() === String(user?.username || '').toLowerCase())
+    || null;
+
+const buildOwnerGuidance = (business, analytics) => [
+    (business.profile_score || 0) >= 80
+        ? 'The business record is already strong. Keep it current whenever stock or contact details change.'
+        : 'The business profile is improving, but more detail will make it easier for lenders and support teams to review.',
+    analytics.creditPreview.note,
+    analytics.lowStockCount > 0
+        ? `${analytics.lowStockCount} stock lines are already at or below the reorder level.`
+        : 'Tracked stock is currently above the reorder level.',
+    analytics.readyDocuments < analytics.documentCount
+        ? 'Finish the remaining business documents so the credit pack is complete before review.'
+        : 'The document pack is ready enough for a lender or compliance check-in.',
+].slice(0, 4);
 
 const guestGateCopy = {
     title: 'Sign in or create an account to unlock the showcase details',
-    description: 'LedgerLift Uganda helps teams onboard informal businesses, assess readiness for credit, and decide where support should go next. Detailed registry, registration, and workspace views stay locked until a user signs in, while credit and government pages remain available for read-only walkthroughs.',
+    description: 'LedgerLift Uganda helps teams onboard informal businesses, assess readiness for credit, and give business owners a workspace for stock, documents, and sales tracking. Detailed registry, registration, and workspace views stay locked until a user signs in, while credit and government pages remain available for read-only walkthroughs.',
     highlights: [
         'Capture onboarding records with optional TIN detail for future verification.',
-        'Open role-based workspaces for field, lender, and oversight stories.',
+        'Open role-based workspaces for field, lender, oversight, and business-owner stories.',
         'Move from a public product overview into the live showcase journey after access.',
     ],
 };
 
 const deriveBusiness = (record) => {
     const tinNumber = String(record.tin_number || '').trim();
+    const ninNumber = String(record.nin_number || '').trim().toUpperCase();
     const isDemoAccount = Boolean(record.is_demo_account);
+    const inventoryValueEstimate = toNumber(record.inventory_value_estimate);
+    const averageMonthlyProfit = toNumber(record.average_monthly_profit);
+    const averageMonthlyMobileMoney = toNumber(record.average_monthly_mobile_money);
+    const receiptCount = Math.max(0, Number(record.receipt_count || 0));
+    const receiptValueTotal = toNumber(record.receipt_value_total);
+    const revenueBandMidpoint = revenueBandMidpoints[record.monthly_revenue_band] || Math.max(averageMonthlyMobileMoney + averageMonthlyProfit, inventoryValueEstimate, 2000000);
     let profileScore = 40;
 
     profileScore += record.mobile_money_number ? 12 : 0;
@@ -423,29 +834,88 @@ const deriveBusiness = (record) => {
         demo_bypass: 'Demo account bypass',
     }[taxLookupStatus];
 
+    const receiptCoverage = revenueBandMidpoint > 0
+        ? Math.min(100, Math.round((receiptValueTotal / revenueBandMidpoint) * 100))
+        : 0;
+    const mobileMoneyCoverage = revenueBandMidpoint > 0
+        ? Math.min(100, Math.round((averageMonthlyMobileMoney / revenueBandMidpoint) * 100))
+        : 0;
+    const receiptTrustScore = clampScoreValue((receiptCount * 6) + (receiptCoverage * 0.35) + (averageMonthlyMobileMoney > 0 ? 18 : 0));
+    const consistencyScore = clampScoreValue((profileScore * 0.4) + (mobileMoneyCoverage * 0.25) + (receiptCoverage * 0.2) + (inventoryValueEstimate > 0 ? 10 : 0) + (averageMonthlyProfit > 0 ? 5 : 0));
+    const creditScore = clampScoreValue((profileScore * 0.38) + (receiptTrustScore * 0.24) + (consistencyScore * 0.2) + (tinNumber ? 8 : 0) + (ninNumber ? 10 : 0));
+    const creditLabel = creditScore >= 82
+        ? 'Investor-ready'
+        : creditScore >= 70
+            ? 'Growth-ready'
+            : creditScore >= 58
+                ? 'Needs more evidence'
+                : 'Early-stage';
+    const fraudRiskLevel = consistencyScore >= 75 ? 'low' : consistencyScore >= 58 ? 'watch' : 'high';
+    const ninVerificationStatus = ninNumber ? 'pending' : 'not_submitted';
+    const ninVerificationStatusLabel = ninNumber ? 'Pending NIN review' : 'NIN not submitted';
+    const creditRegistrationStatus = record.credit_registration_status || (creditScore >= 68 ? 'eligible' : 'not_started');
+    const creditRegistrationStatusLabel = {
+        not_started: 'Not started',
+        eligible: 'Eligible for registration',
+        submitted: 'Registration submitted',
+        verified: 'Registration verified',
+    }[creditRegistrationStatus] || 'Not started';
+    const creditSignalGaps = [
+        !tinNumber ? 'Add a TIN to keep the tax and compliance path open.' : '',
+        !record.stock_focus ? 'Add a stock focus so the owner dashboard can explain what the business trades in.' : '',
+        averageMonthlyMobileMoney <= 0 ? 'Capture monthly mobile money volume to improve the confidence of the score.' : '',
+        receiptCount < 5 ? 'Add more receipt evidence so the business has a stronger operating trail.' : '',
+    ].filter(Boolean);
+
     return {
         ...record,
+        nin_number: ninNumber,
         tin_number: tinNumber,
         is_demo_account: isDemoAccount,
         profile_score: profileScore,
         profile_label: profileLabel,
         tax_lookup_status: taxLookupStatus,
         tax_lookup_status_label: taxLookupStatusLabel,
+        inventory_value_estimate: inventoryValueEstimate,
+        average_monthly_profit: averageMonthlyProfit,
+        average_monthly_mobile_money: averageMonthlyMobileMoney,
+        receipt_count: receiptCount,
+        receipt_value_total: receiptValueTotal,
+        receipt_trust_score: receiptTrustScore,
+        consistency_score: consistencyScore,
+        credit_score: creditScore,
+        credit_label: creditLabel,
+        fraud_risk_level: fraudRiskLevel,
+        nin_verification_status: ninVerificationStatus,
+        nin_verification_status_label: ninVerificationStatusLabel,
+        credit_registration_status: creditRegistrationStatus,
+        credit_registration_status_label: creditRegistrationStatusLabel,
+        credit_readiness_score: clampScoreValue((profileScore * 0.55) + (receiptTrustScore * 0.2) + (consistencyScore * 0.25)),
+        is_credit_ready: creditScore >= 68 && profileScore >= 65,
+        credit_signal_gaps: creditSignalGaps,
+        account_username: record.account_username || '',
+        revenue_band_midpoint: revenueBandMidpoint,
+        nin_verification_notes: ninNumber ? 'Front-end only registration waiting for backend verification.' : '',
         account_mode: isDemoAccount ? 'Demo' : 'Live',
         created_at: record.created_at || new Date().toISOString(),
+        updated_at: record.updated_at || record.created_at || new Date().toISOString(),
     };
 };
 
 const getBusinesses = () => {
+    const businessEdits = getStoredBusinessEdits();
     const combined = [...demoData.seededBusinesses, ...getStoredRegistrations()]
-        .map(deriveBusiness)
+        .map((record) => deriveBusiness({
+            ...record,
+            ...(businessEdits[record.id] || {}),
+        }))
         .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
 
     return combined;
 };
 
 const getTopBusinesses = (businesses, limit = 3) => [...businesses]
-    .sort((left, right) => right.profile_score - left.profile_score)
+    .sort((left, right) => (right.credit_score || right.profile_score) - (left.credit_score || left.profile_score))
     .slice(0, limit);
 
 const buildDashboardMetrics = (businesses) => {
@@ -468,12 +938,14 @@ const buildSessionUser = (account) => ({
     display_name: account.displayName,
     role: account.role,
     role_label: account.roleLabel,
+    business_id: account.businessId || '',
     requires_tin: false,
     notes: account.note,
     recommended_page: {
         government: 'government',
         lender: 'credit',
         field_agent: 'registration',
+        business_owner: 'workspace',
     }[account.role] || 'dashboard',
 });
 
@@ -1075,8 +1547,8 @@ const loginTemplate = (session, flash) => `
                 <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
                     <div>
                         <p class='section-kicker mb-2'>Secure entry</p>
-                        <h2 class='h4 mb-1'>Sign in with a seeded demo account</h2>
-                        <p class='text-muted mb-0'>Use seeded credentials to demonstrate role-based access during the showcase.</p>
+                        <h2 class='h4 mb-1'>Sign in as an official or business owner</h2>
+                        <p class='text-muted mb-0'>Use seeded credentials or the owner sign-up flow to open the right workspace story for the showcase.</p>
                     </div>
                     <span class='pill-note pill-note-success align-self-start'>Role access</span>
                 </div>
@@ -1104,10 +1576,10 @@ const loginTemplate = (session, flash) => `
                 <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
                     <div>
                         <p class='section-kicker mb-2'>Create access</p>
-                        <h2 class='h4 mb-1'>Create an account for the showcase</h2>
-                        <p class='text-muted mb-0'>New self-created accounts start with field access so the user can open the protected showcase pages after sign-in.</p>
+                        <h2 class='h4 mb-1'>Create a business owner account</h2>
+                        <p class='text-muted mb-0'>This form creates the owner login and links it to a business profile so the user lands straight in the owner workspace.</p>
                     </div>
-                    <span class='pill-note pill-note-success align-self-start'>Field access by default</span>
+                    <span class='pill-note pill-note-success align-self-start'>Business owner access</span>
                 </div>
 
                 <form class='row g-3' data-register-form>
@@ -1117,7 +1589,7 @@ const loginTemplate = (session, flash) => `
                     </div>
                     <div class='col-md-6'>
                         <label class='form-label' for='register_username'>Username</label>
-                        <input class='form-control' id='register_username' name='username' type='text' placeholder='amina.agent' required>
+                        <input class='form-control' id='register_username' name='username' type='text' placeholder='amina.owner' required>
                     </div>
                     <div class='col-md-6'>
                         <label class='form-label' for='register_password'>Password</label>
@@ -1128,11 +1600,67 @@ const loginTemplate = (session, flash) => `
                         <input class='form-control' id='register_confirm_password' name='confirm_password' type='password' placeholder='Repeat your password' required>
                     </div>
                     <div class='col-12'>
+                        <hr class='my-1'>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_business_name'>Business name</label>
+                        <input class='form-control' id='register_business_name' name='business_name' type='text' placeholder='Amina Retail Hub' required>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_phone_number'>Phone number</label>
+                        <input class='form-control' id='register_phone_number' name='phone_number' type='text' placeholder='+256700000000' required>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_mobile_money_number'>Mobile money number</label>
+                        <input class='form-control' id='register_mobile_money_number' name='mobile_money_number' type='text' placeholder='Optional if same as phone number'>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_tin_number'>TIN number</label>
+                        <input class='form-control' id='register_tin_number' name='tin_number' type='text' placeholder='Optional for now'>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_district'>District</label>
+                        <select class='form-select' id='register_district' name='district' required>
+                            <option value=''>Choose a district</option>
+                            ${demoData.registrationForm.districts.map((district) => `<option value='${escapeHtml(district)}'>${escapeHtml(district)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_sector'>Business sector</label>
+                        <select class='form-select' id='register_sector' name='sector' required>
+                            <option value=''>Choose a sector</option>
+                            ${demoData.registrationForm.sectors.map((sector) => `<option value='${escapeHtml(sector)}'>${escapeHtml(sector)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_monthly_revenue_band'>Monthly revenue band</label>
+                        <select class='form-select' id='register_monthly_revenue_band' name='monthly_revenue_band'>
+                            <option value=''>Select revenue band</option>
+                            ${demoData.registrationForm.revenueBands.map((band) => `<option value='${escapeHtml(band)}'>${escapeHtml(band)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class='col-md-6'>
+                        <label class='form-label' for='register_employee_count'>Employee count</label>
+                        <input class='form-control' id='register_employee_count' name='employee_count' type='number' min='1' value='1'>
+                    </div>
+                    <div class='col-12'>
+                        <label class='form-label' for='register_stock_focus'>Primary stock focus</label>
+                        <input class='form-control' id='register_stock_focus' name='stock_focus' type='text' placeholder='Sugar, soap, beverages'>
+                    </div>
+                    <div class='col-12'>
+                        <label class='form-label' for='register_location_description'>Location description</label>
+                        <input class='form-control' id='register_location_description' name='location_description' type='text' placeholder='Trading center, market lane, or village cluster'>
+                    </div>
+                    <div class='col-12'>
+                        <label class='form-label' for='register_notes'>Notes</label>
+                        <textarea class='form-control' id='register_notes' name='notes' rows='3' placeholder='Add anything useful for the business owner workspace, such as supplier patterns or growth plans.'></textarea>
+                    </div>
+                    <div class='col-12'>
                         <div class='form-status' data-register-message></div>
                     </div>
                     <div class='col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center'>
-                        <button class='btn btn-outline-success btn-lg px-4' type='submit'>Create account</button>
-                        <small class='text-muted'>The new account signs in immediately and opens the protected showcase pages.</small>
+                        <button class='btn btn-outline-success btn-lg px-4' type='submit'>Create owner account</button>
+                        <small class='text-muted'>The new owner signs in immediately and lands in the business workspace with stock, graphs, documents, and credit tools.</small>
                     </div>
                 </form>
             </article>
@@ -1166,14 +1694,443 @@ const loginTemplate = (session, flash) => `
                     <strong class='d-block mb-2'>Lender</strong>
                     <p class='mb-0 text-muted'>Credit-readiness signals, top profiles, and businesses ready for small-ticket facilities.</p>
                 </div>
-                <div class='business-card'>
+                <div class='business-card mb-3'>
                     <strong class='d-block mb-2'>Field agent</strong>
                     <p class='mb-0 text-muted'>Business onboarding, demo-mode registrations, and follow-up on incomplete profiles.</p>
+                </div>
+                <div class='business-card'>
+                    <strong class='d-block mb-2'>Business owner</strong>
+                    <p class='mb-0 text-muted'>Daily stock input, live business graphs, monthly sales reporting, documents, and front-end credit registration.</p>
                 </div>
             </article>
         </div>
     </section>
 `;
+
+const ownerWorkspaceTemplate = (user, businesses) => {
+    const business = getOwnerBusiness(user, businesses);
+
+    if (!business) {
+        return `
+            <section class='row g-3'>
+                <div class='col-lg-8'>
+                    <article class='panel h-100'>
+                        <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                            <div>
+                                <p class='section-kicker mb-2'>Business owner workspace</p>
+                                <h2 class='h3 mb-2'>No linked business profile yet</h2>
+                                <p class='text-muted mb-0'>This owner account is signed in, but no business record is linked yet. Create the owner through the account form so the workspace has something to manage.</p>
+                            </div>
+                            <span class='pill-note pill-note-muted align-self-start'>Owner setup required</span>
+                        </div>
+                        <a class='btn btn-outline-success btn-sm' href='#login'>Create owner-linked account</a>
+                    </article>
+                </div>
+            </section>
+        `;
+    }
+
+    const ownerData = getOwnerWorkspaceData(business);
+    const analytics = buildOwnerWorkspaceAnalytics(business, ownerData);
+    const ownerNotes = buildOwnerGuidance(business, analytics);
+
+    return `
+        <section class='row g-3'>
+            <div class='col-lg-8'>
+                <article class='panel h-100'>
+                    <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                        <div>
+                            <p class='section-kicker mb-2'>Business owner workspace</p>
+                            <h2 class='h3 mb-2'>${escapeHtml(business.business_name)}</h2>
+                            <p class='text-muted mb-0'>Log daily stock, review live graphs, prepare a monthly report, and organize the documents and credit pack for the business.</p>
+                        </div>
+                        <span class='pill-note pill-note-success align-self-start'>Signed in as Business owner</span>
+                    </div>
+
+                    <div class='row g-3 mb-3'>
+                        <div class='col-sm-6 col-xl-3'>
+                            <div class='metric-tile h-100'>
+                                <span class='section-kicker mb-2'>Stock lines tracked</span>
+                                <strong>${escapeHtml(String(analytics.latestStock.length))}</strong>
+                                <p class='text-muted mb-0'>${escapeHtml(String(analytics.lowStockCount))} below reorder level</p>
+                            </div>
+                        </div>
+                        <div class='col-sm-6 col-xl-3'>
+                            <div class='metric-tile h-100'>
+                                <span class='section-kicker mb-2'>Sales this month</span>
+                                <strong>${escapeHtml(formatCurrencyUGX(analytics.currentMonth.revenue))}</strong>
+                                <p class='text-muted mb-0'>${escapeHtml(String(Math.round(toNumber(analytics.currentMonth.orders))))} ticketed units sold</p>
+                            </div>
+                        </div>
+                        <div class='col-sm-6 col-xl-3'>
+                            <div class='metric-tile h-100'>
+                                <span class='section-kicker mb-2'>Document pack</span>
+                                <strong>${escapeHtml(`${analytics.readyDocuments}/${analytics.documentCount}`)}</strong>
+                                <p class='text-muted mb-0'>Ready or submitted business files</p>
+                            </div>
+                        </div>
+                        <div class='col-sm-6 col-xl-3'>
+                            <div class='metric-tile h-100'>
+                                <span class='section-kicker mb-2'>Credit preview</span>
+                                <strong>${escapeHtml(`${analytics.creditPreview.score}/100`)}</strong>
+                                <p class='text-muted mb-0'>${escapeHtml(analytics.creditPreview.band)}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class='row g-3'>
+                        <div class='col-md-6'>
+                            <div class='business-card action-card d-flex flex-column'>
+                                <strong class='d-block mb-2'>View the wider registry</strong>
+                                <p class='mb-3 text-muted'>Check how this business compares with the rest of the showcase portfolio.</p>
+                                <a class='btn btn-outline-success btn-sm align-self-start' href='#businesses'>Open business registry</a>
+                            </div>
+                        </div>
+                        <div class='col-md-6'>
+                            <div class='business-card action-card d-flex flex-column'>
+                                <strong class='d-block mb-2'>Open the credit story</strong>
+                                <p class='mb-3 text-muted'>Use the credit page to explain how the owner pack will feed lender conversations.</p>
+                                <a class='btn btn-outline-success btn-sm align-self-start' href='#credit'>Open credit page</a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <div class='col-lg-4'>
+                <article class='panel mb-3'>
+                    <p class='section-kicker mb-2'>Current access</p>
+                    <h2 class='h4 mb-3'>Signed-in account</h2>
+                    <div class='auth-profile-card'>
+                        <strong class='d-block mb-2'>${escapeHtml(user.display_name)}</strong>
+                        <div class='small mb-1'><strong>Username:</strong> ${escapeHtml(user.username)}</div>
+                        <div class='small mb-1'><strong>Linked business:</strong> ${escapeHtml(business.business_name)}</div>
+                        <div class='small mb-1'><strong>NIN status:</strong> ${escapeHtml(business.nin_verification_status_label)}</div>
+                        <div class='small mb-1'><strong>Credit registration:</strong> ${escapeHtml(business.credit_registration_status_label)}</div>
+                        <div class='small mb-3'><strong>Last saved:</strong> ${escapeHtml(formatWorkspaceDate(business.updated_at))}</div>
+                        <a class='btn btn-outline-success btn-sm' href='#businesses'>View my business profile</a>
+                    </div>
+                </article>
+
+                <article class='panel'>
+                    <p class='section-kicker mb-2'>Owner guidance</p>
+                    <h2 class='h4 mb-3'>What to work on next</h2>
+                    <div class='registration-feed'>
+                        ${ownerNotes.map((note) => `<div class='feed-item'><p class='mb-0 text-muted'>${escapeHtml(note)}</p></div>`).join('')}
+                    </div>
+                </article>
+            </div>
+
+            <div class='col-xl-7'>
+                <article class='panel owner-stock-panel h-100'>
+                    <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                        <div>
+                            <p class='section-kicker mb-2'>Daily stock input</p>
+                            <h2 class='h4 mb-1'>Capture inventory movement day by day</h2>
+                            <p class='text-muted mb-0'>Each entry refreshes the stock chart and updates the current monthly report.</p>
+                        </div>
+                        <span class='pill-note ${analytics.lowStockCount === 0 ? 'pill-note-success' : 'pill-note-danger'} align-self-start'>${analytics.lowStockCount === 0 ? 'Stock healthy' : `${analytics.lowStockCount} reorder alerts`}</span>
+                    </div>
+                    <div class='workspace-detail-grid mb-4'>
+                        <div class='workspace-detail-item'><span>Tracked items</span><strong>${escapeHtml(String(analytics.latestStock.length))}</strong></div>
+                        <div class='workspace-detail-item'><span>Units on hand</span><strong>${escapeHtml(String(Math.round(analytics.totalOnHand)))}</strong></div>
+                        <div class='workspace-detail-item'><span>7-day sold</span><strong>${escapeHtml(String(Math.round(analytics.weeklyUnitsSold)))}</strong></div>
+                        <div class='workspace-detail-item'><span>Receipt trust</span><strong>${escapeHtml(`${business.receipt_trust_score || 0}/100`)}</strong></div>
+                    </div>
+                    <form class='row g-3' data-owner-stock-form data-business-id='${escapeHtml(String(business.id))}'>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_stock_date'>Entry date</label>
+                            <input class='form-control' id='owner_stock_date' name='date' type='date' value='${buildRelativeIsoDate(0)}' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_stock_item_name'>Stock item</label>
+                            <input class='form-control' id='owner_stock_item_name' name='item_name' type='text' placeholder='Sugar, soap, cooking oil' required>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_category'>Category</label>
+                            <input class='form-control' id='owner_stock_category' name='category' type='text' value='${escapeHtml(business.sector || 'Retail')}'>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_unit'>Unit</label>
+                            <input class='form-control' id='owner_stock_unit' name='unit' type='text' value='units'>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_selling_price'>Selling price per unit (UGX)</label>
+                            <input class='form-control' id='owner_stock_selling_price' name='selling_price' type='number' min='0' step='100' value='${Math.max(2500, Math.round(Math.max(toNumber(business.average_monthly_profit) / 45, 2500) / 100) * 100)}'>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_on_hand'>Current stock on hand</label>
+                            <input class='form-control' id='owner_stock_on_hand' name='on_hand' type='number' min='0' value='0' required>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_received'>Units received today</label>
+                            <input class='form-control' id='owner_stock_received' name='received' type='number' min='0' value='0'>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_sold'>Units sold today</label>
+                            <input class='form-control' id='owner_stock_sold' name='sold' type='number' min='0' value='0'>
+                        </div>
+                        <div class='col-md-4'>
+                            <label class='form-label' for='owner_stock_reorder_level'>Reorder level</label>
+                            <input class='form-control' id='owner_stock_reorder_level' name='reorder_level' type='number' min='0' value='12'>
+                        </div>
+                        <div class='col-12'>
+                            <div class='form-status' data-owner-stock-message></div>
+                        </div>
+                        <div class='col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center'>
+                            <button class='btn btn-warning btn-lg px-4' type='submit'>Save stock entry</button>
+                            <small class='text-muted'>This tracker is front-end only for now, but the graphs update immediately.</small>
+                        </div>
+                    </form>
+                    <div class='table-responsive mt-4'>
+                        <table class='table align-middle mb-0'>
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Date</th>
+                                    <th>On hand</th>
+                                    <th>Sold</th>
+                                    <th>Reorder</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(ownerData.stockEntries || []).slice(0, 6).map((entry) => `
+                                    <tr>
+                                        <td>
+                                            <strong class='d-block'>${escapeHtml(entry.item_name || 'Unnamed item')}</strong>
+                                            <span class='text-muted small'>${escapeHtml(entry.category || 'Retail')} · ${escapeHtml(entry.unit || 'units')}</span>
+                                        </td>
+                                        <td>${escapeHtml(formatWorkspaceDate(entry.date))}</td>
+                                        <td>${escapeHtml(String(Math.round(toNumber(entry.on_hand))))}</td>
+                                        <td>${escapeHtml(String(Math.round(toNumber(entry.sold))))}</td>
+                                        <td>${escapeHtml(String(Math.round(toNumber(entry.reorder_level))))}</td>
+                                        <td><span class='pill-note ${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'pill-note-danger' : 'pill-note-success'}'>${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'Reorder soon' : 'Healthy'}</span></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+
+            <div class='col-xl-5'>
+                <article class='panel owner-report-panel h-100'>
+                    <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                        <div>
+                            <p class='section-kicker mb-2'>Live graphs and monthly report</p>
+                            <h2 class='h4 mb-1'>Read business movement as you record it</h2>
+                            <p class='text-muted mb-0'>Stock levels and sales trend are refreshed from the same owner workspace data.</p>
+                        </div>
+                        <span class='pill-note pill-note-muted align-self-start'>Front-end analytics</span>
+                    </div>
+                    <div class='chart-frame chart-frame-wide mb-4'>
+                        <canvas id='ownerStockPositionChart'></canvas>
+                    </div>
+                    <div class='chart-frame chart-frame-tall mb-4'>
+                        <canvas id='ownerSalesTrendChart'></canvas>
+                    </div>
+                    <div class='workspace-detail-grid'>
+                        <div class='workspace-detail-item'><span>This month sales</span><strong>${escapeHtml(formatCurrencyUGX(analytics.currentMonth.revenue))}</strong></div>
+                        <div class='workspace-detail-item'><span>This month orders</span><strong>${escapeHtml(String(Math.round(toNumber(analytics.currentMonth.orders))))}</strong></div>
+                        <div class='workspace-detail-item'><span>6-month sales</span><strong>${escapeHtml(formatCurrencyUGX(analytics.totalRevenue))}</strong></div>
+                        <div class='workspace-detail-item'><span>Average margin</span><strong>${escapeHtml(`${analytics.grossMargin}%`)}</strong></div>
+                        <div class='workspace-detail-item'><span>Best month</span><strong>${escapeHtml(`${analytics.bestMonth.label} · ${formatCurrencyUGX(analytics.bestMonth.revenue)}`)}</strong></div>
+                        <div class='workspace-detail-item'><span>Momentum</span><strong>${escapeHtml(formatSignedCurrencyUGX(analytics.salesMomentum))}</strong></div>
+                    </div>
+                    <div class='registration-feed mt-4'>
+                        <div class='feed-item'><p class='mb-0 text-muted'>This week the workspace has tracked ${escapeHtml(String(Math.round(analytics.weeklyUnitsSold)))} units sold and ${escapeHtml(String(analytics.lowStockCount))} stock lines below the reorder threshold.</p></div>
+                        <div class='feed-item'><p class='mb-0 text-muted'>Use the latest month graph before lender conversations so the business story stays current.</p></div>
+                    </div>
+                </article>
+            </div>
+
+            <div class='col-lg-6'>
+                <article class='panel owner-document-panel h-100'>
+                    <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                        <div>
+                            <p class='section-kicker mb-2'>Business documents</p>
+                            <h2 class='h4 mb-1'>Track the files needed for compliance and credit</h2>
+                            <p class='text-muted mb-0'>Add references for licences, statements, and business papers so the owner pack feels complete.</p>
+                        </div>
+                        <span class='pill-note pill-note-muted align-self-start'>Front-end tracker</span>
+                    </div>
+                    <form class='row g-3' data-owner-document-form data-business-id='${escapeHtml(String(business.id))}'>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_document_name'>Document name</label>
+                            <input class='form-control' id='owner_document_name' name='name' type='text' placeholder='Trading licence' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_document_type'>Document type</label>
+                            <input class='form-control' id='owner_document_type' name='type' type='text' placeholder='Compliance, Finance, Tax'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_document_reference'>Reference</label>
+                            <input class='form-control' id='owner_document_reference' name='reference' type='text' placeholder='Reference number or note'>
+                        </div>
+                        <div class='col-md-3'>
+                            <label class='form-label' for='owner_document_due_date'>Due date</label>
+                            <input class='form-control' id='owner_document_due_date' name='due_date' type='date'>
+                        </div>
+                        <div class='col-md-3'>
+                            <label class='form-label' for='owner_document_status'>Status</label>
+                            <select class='form-select' id='owner_document_status' name='status'>
+                                <option value='Pending'>Pending</option>
+                                <option value='Ready'>Ready</option>
+                                <option value='Submitted'>Submitted</option>
+                            </select>
+                        </div>
+                        <div class='col-12'>
+                            <div class='form-status' data-owner-document-message></div>
+                        </div>
+                        <div class='col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center'>
+                            <button class='btn btn-outline-success btn-lg px-4' type='submit'>Add document reference</button>
+                            <small class='text-muted'>This stores document metadata only. File uploads can be added when the backend is ready.</small>
+                        </div>
+                    </form>
+                    <div class='registration-feed mt-4'>
+                        ${(ownerData.documents || []).slice(0, 5).map((document) => `
+                            <div class='feed-item'>
+                                <div class='d-flex justify-content-between gap-3 mb-2'>
+                                    <strong>${escapeHtml(document.name || 'Untitled document')}</strong>
+                                    <span class='pill-note ${['ready', 'submitted', 'verified', 'active'].includes(String(document.status || '').toLowerCase()) ? 'pill-note-success' : 'pill-note-muted'}'>${escapeHtml(document.status || 'Pending')}</span>
+                                </div>
+                                <div class='text-muted small mb-1'>${escapeHtml(document.type || 'General')} · ${escapeHtml(document.reference || 'No reference yet')}</div>
+                                <div class='text-muted small'>${document.due_date ? `Due ${escapeHtml(formatWorkspaceDate(document.due_date))}` : 'No due date recorded'}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </article>
+            </div>
+
+            <div class='col-lg-6'>
+                <article class='panel owner-credit-intake-panel h-100'>
+                    <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                        <div>
+                            <p class='section-kicker mb-2'>Credit score registration</p>
+                            <h2 class='h4 mb-1'>Capture a front-end lender intake</h2>
+                            <p class='text-muted mb-0'>This is a front-end only pre-check for now. It lets the owner build a working credit pack before backend underwriting arrives.</p>
+                        </div>
+                        <span class='pill-note pill-note-success align-self-start'>${escapeHtml(`${analytics.creditPreview.score}/100 preview`)}</span>
+                    </div>
+                    <div class='workspace-detail-grid mb-4'>
+                        <div class='workspace-detail-item'><span>Credit band</span><strong>${escapeHtml(analytics.creditPreview.band)}</strong></div>
+                        <div class='workspace-detail-item'><span>Document coverage</span><strong>${escapeHtml(`${analytics.creditPreview.documentCoverage}%`)}</strong></div>
+                        <div class='workspace-detail-item'><span>Inventory discipline</span><strong>${escapeHtml(`${analytics.creditPreview.inventoryDiscipline}%`)}</strong></div>
+                        <div class='workspace-detail-item'><span>Registration status</span><strong>${escapeHtml(business.credit_registration_status_label)}</strong></div>
+                    </div>
+                    <form class='row g-3' data-owner-credit-form data-business-id='${escapeHtml(String(business.id))}'>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_credit_nin_number'>Owner NIN</label>
+                            <input class='form-control' id='owner_credit_nin_number' name='nin_number' type='text' maxlength='14' value='${escapeHtml(business.nin_number || '')}' placeholder='CM1234567890AB'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_credit_requested_amount'>Requested amount (UGX)</label>
+                            <input class='form-control' id='owner_credit_requested_amount' name='requested_amount' type='number' min='0' step='1000' value='${Math.round(toNumber(ownerData.creditProfile.requested_amount))}' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_credit_repayment_window'>Repayment window</label>
+                            <input class='form-control' id='owner_credit_repayment_window' name='repayment_window' type='text' value='${escapeHtml(ownerData.creditProfile.repayment_window || '6 months')}'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_credit_supplier_score'>Supplier confidence</label>
+                            <input class='form-control' id='owner_credit_supplier_score' name='supplier_score' type='number' min='0' max='100' value='${clampScoreValue(ownerData.creditProfile.supplier_score)}'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_credit_bookkeeping_score'>Bookkeeping score</label>
+                            <input class='form-control' id='owner_credit_bookkeeping_score' name='bookkeeping_score' type='number' min='0' max='100' value='${clampScoreValue(ownerData.creditProfile.bookkeeping_score)}'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_credit_loan_purpose'>Loan purpose</label>
+                            <input class='form-control' id='owner_credit_loan_purpose' name='loan_purpose' type='text' value='${escapeHtml(ownerData.creditProfile.loan_purpose || '')}' placeholder='Expand stock depth, refrigeration, supplier payments'>
+                        </div>
+                        <div class='col-12'>
+                            <label class='form-label' for='owner_credit_collateral_notes'>Collateral or supporting notes</label>
+                            <textarea class='form-control' id='owner_credit_collateral_notes' name='collateral_notes' rows='3' placeholder='Inventory, guarantor, mobile-money trail, supplier support'>${escapeHtml(ownerData.creditProfile.collateral_notes || '')}</textarea>
+                        </div>
+                        <div class='col-12'>
+                            <div class='form-status' data-owner-credit-message></div>
+                        </div>
+                        <div class='col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center'>
+                            <button class='btn btn-warning btn-lg px-4' type='submit'>Save credit registration</button>
+                            <small class='text-muted'>Saved only in this browser for now. Backend underwriting can plug into the same panel later.</small>
+                        </div>
+                    </form>
+                    <div class='feed-item mt-4'>
+                        <strong class='d-block mb-2'>Status note</strong>
+                        <p class='mb-0 text-muted'>${escapeHtml(analytics.creditPreview.note)}</p>
+                    </div>
+                </article>
+            </div>
+
+            <div class='col-12'>
+                <article class='panel owner-edit-panel h-100'>
+                    <div class='d-flex flex-column flex-md-row justify-content-between gap-3 mb-3'>
+                        <div>
+                            <p class='section-kicker mb-2'>Owner adjustments</p>
+                            <h2 class='h4 mb-1'>Update the linked business profile</h2>
+                            <p class='text-muted mb-0'>Saved changes stay attached to this owner business in the showcase so the next sign-in starts from the latest state.</p>
+                        </div>
+                        <span class='pill-note pill-note-muted align-self-start'>Saved to showcase storage</span>
+                    </div>
+                    <form class='row g-3' data-owner-business-form data-business-id='${escapeHtml(String(business.id))}'>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_business_name'>Business name</label>
+                            <input class='form-control' id='owner_business_name' name='business_name' type='text' value='${escapeHtml(business.business_name || '')}' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_phone_number'>Phone number</label>
+                            <input class='form-control' id='owner_phone_number' name='phone_number' type='text' value='${escapeHtml(business.phone_number || '')}' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_mobile_money_number'>Mobile money number</label>
+                            <input class='form-control' id='owner_mobile_money_number' name='mobile_money_number' type='text' value='${escapeHtml(business.mobile_money_number || '')}'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_tin_number'>TIN number</label>
+                            <input class='form-control' id='owner_tin_number' name='tin_number' type='text' value='${escapeHtml(business.tin_number || '')}'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_district'>District</label>
+                            <input class='form-control' id='owner_district' name='district' type='text' value='${escapeHtml(business.district || '')}' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_sector'>Business sector</label>
+                            <input class='form-control' id='owner_sector' name='sector' type='text' value='${escapeHtml(business.sector || '')}' required>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_monthly_revenue_band'>Monthly revenue band</label>
+                            <input class='form-control' id='owner_monthly_revenue_band' name='monthly_revenue_band' type='text' value='${escapeHtml(business.monthly_revenue_band || '')}' placeholder='UGX 3M - 6M'>
+                        </div>
+                        <div class='col-md-6'>
+                            <label class='form-label' for='owner_employee_count'>Employee count</label>
+                            <input class='form-control' id='owner_employee_count' name='employee_count' type='number' min='1' value='${Math.max(1, Number(business.employee_count || 1))}'>
+                        </div>
+                        <div class='col-12'>
+                            <label class='form-label' for='owner_location_description'>Location description</label>
+                            <input class='form-control' id='owner_location_description' name='location_description' type='text' value='${escapeHtml(business.location_description || '')}' placeholder='Trading center or market location'>
+                        </div>
+                        <div class='col-12'>
+                            <label class='form-label' for='owner_stock_focus'>Stock focus</label>
+                            <input class='form-control' id='owner_stock_focus' name='stock_focus' type='text' value='${escapeHtml(business.stock_focus || '')}' placeholder='Fast-moving goods, groceries, household goods'>
+                        </div>
+                        <div class='col-12'>
+                            <label class='form-label' for='owner_notes'>Operating notes</label>
+                            <textarea class='form-control' id='owner_notes' name='notes' rows='3' placeholder='Add useful operating notes for your next workspace session.'>${escapeHtml(business.notes || '')}</textarea>
+                        </div>
+                        <div class='col-12'>
+                            <div class='form-status' data-owner-business-message></div>
+                        </div>
+                        <div class='col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center'>
+                            <button class='btn btn-outline-success btn-lg px-4' type='submit'>Save business adjustments</button>
+                            <small class='text-muted'>These changes stay with the owner-linked business record in the browser-backed showcase.</small>
+                        </div>
+                    </form>
+                </article>
+            </div>
+        </section>
+    `;
+};
 
 const workspaceTemplate = (session, businesses) => {
     if (!session?.user) {
@@ -1198,6 +2155,10 @@ const workspaceTemplate = (session, businesses) => {
                 </div>
             </section>
         `;
+    }
+
+    if (session.user.role === 'business_owner') {
+        return ownerWorkspaceTemplate(session.user, businesses);
     }
 
     const user = session.user;
@@ -1577,6 +2538,17 @@ const bindLoginPage = () => {
         const username = String(formData.get('username') || '').trim();
         const password = String(formData.get('password') || '');
         const confirmPassword = String(formData.get('confirm_password') || '');
+        const businessName = String(formData.get('business_name') || '').trim();
+        const phoneNumber = String(formData.get('phone_number') || '').trim();
+        const mobileMoneyNumber = String(formData.get('mobile_money_number') || '').trim();
+        const tinNumber = String(formData.get('tin_number') || '').trim();
+        const district = String(formData.get('district') || '').trim();
+        const sector = String(formData.get('sector') || '').trim();
+        const monthlyRevenueBand = String(formData.get('monthly_revenue_band') || '').trim();
+        const employeeCount = Math.max(1, Number(formData.get('employee_count') || 1));
+        const stockFocus = String(formData.get('stock_focus') || '').trim();
+        const locationDescription = String(formData.get('location_description') || '').trim();
+        const notes = String(formData.get('notes') || '').trim();
 
         if (displayName.length < 3 || username.length < 3) {
             showFormMessage('[data-register-message]', 'error', 'Display name and username must each be at least 3 characters long.');
@@ -1599,22 +2571,238 @@ const bindLoginPage = () => {
             return;
         }
 
+        if (!businessName || !phoneNumber || !district || !sector) {
+            showFormMessage('[data-register-message]', 'error', 'Business name, phone number, district, and sector are required for the owner workspace.');
+            return;
+        }
+
+        const businessId = `browser-owner-${Date.now()}`;
+        const timestamp = new Date().toISOString();
         const account = {
             displayName,
             username,
             password,
-            role: 'field_agent',
-            roleLabel: 'Field agent',
-            note: 'Self-created showcase account.',
+            role: 'business_owner',
+            roleLabel: 'Business owner',
+            note: 'Self-created owner showcase account.',
+            businessId,
+        };
+
+        const business = {
+            id: businessId,
+            business_name: businessName,
+            owner_name: displayName,
+            phone_number: phoneNumber,
+            mobile_money_number: mobileMoneyNumber,
+            tin_number: tinNumber,
+            district,
+            sector,
+            monthly_revenue_band: monthlyRevenueBand,
+            employee_count: employeeCount,
+            stock_focus: stockFocus,
+            location_description: locationDescription,
+            notes,
+            is_demo_account: false,
+            account_username: username,
+            created_at: timestamp,
+            updated_at: timestamp,
         };
 
         const storedAccounts = getStoredAccounts();
         storedAccounts.unshift(account);
         saveStoredAccounts(storedAccounts);
+        const registrations = getStoredRegistrations();
+        registrations.unshift(business);
+        saveStoredRegistrations(registrations);
         saveSession(buildSessionUser(account));
         setFlash('workspace', 'success', `Account created for ${displayName}.`);
         setCurrentPage('workspace');
     });
+};
+
+const bindOwnerWorkspace = (session, businesses) => {
+    if (!session?.user || session.user.role !== 'business_owner') {
+        return;
+    }
+
+    const business = getOwnerBusiness(session.user, businesses);
+
+    if (!business) {
+        return;
+    }
+
+    const businessForm = document.querySelector('[data-owner-business-form]');
+    const stockForm = document.querySelector('[data-owner-stock-form]');
+    const documentForm = document.querySelector('[data-owner-document-form]');
+    const creditForm = document.querySelector('[data-owner-credit-form]');
+
+    if (businessForm && businessForm.dataset.bound !== 'true') {
+        businessForm.dataset.bound = 'true';
+        businessForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            const formData = new FormData(businessForm);
+            const businessName = String(formData.get('business_name') || '').trim();
+            const phoneNumber = String(formData.get('phone_number') || '').trim();
+            const district = String(formData.get('district') || '').trim();
+            const sector = String(formData.get('sector') || '').trim();
+
+            if (!businessName || !phoneNumber || !district || !sector) {
+                showFormMessage('[data-owner-business-message]', 'error', 'Business name, phone number, district, and sector are required.');
+                return;
+            }
+
+            saveBusinessEdit(business.id, {
+                business_name: businessName,
+                owner_name: business.owner_name || session.user.display_name,
+                phone_number: phoneNumber,
+                mobile_money_number: String(formData.get('mobile_money_number') || '').trim(),
+                tin_number: String(formData.get('tin_number') || '').trim(),
+                district,
+                sector,
+                monthly_revenue_band: String(formData.get('monthly_revenue_band') || '').trim(),
+                employee_count: Math.max(1, Number(formData.get('employee_count') || 1)),
+                location_description: String(formData.get('location_description') || '').trim(),
+                stock_focus: String(formData.get('stock_focus') || '').trim(),
+                notes: String(formData.get('notes') || '').trim(),
+            });
+
+            renderApp();
+            showFormMessage('[data-owner-business-message]', 'success', 'Business profile updated.');
+        });
+    }
+
+    if (stockForm && stockForm.dataset.bound !== 'true') {
+        stockForm.dataset.bound = 'true';
+        stockForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            const formData = new FormData(stockForm);
+            const itemName = String(formData.get('item_name') || '').trim();
+
+            if (!itemName) {
+                showFormMessage('[data-owner-stock-message]', 'error', 'Add the stock item name before saving the entry.');
+                return;
+            }
+
+            const sold = Math.max(0, Math.round(toNumber(formData.get('sold'))));
+            const sellingPrice = Math.max(0, toNumber(formData.get('selling_price')));
+
+            updateOwnerWorkspaceData(business, (current) => {
+                const monthlySales = [...(current.monthlySales || [])];
+
+                if (monthlySales.length > 0) {
+                    const lastIndex = monthlySales.length - 1;
+                    const currentMonth = monthlySales[lastIndex];
+                    monthlySales[lastIndex] = {
+                        ...currentMonth,
+                        revenue: Math.round(toNumber(currentMonth.revenue) + (sold * sellingPrice)),
+                        orders: Math.round(toNumber(currentMonth.orders) + sold),
+                    };
+                }
+
+                return {
+                    ...current,
+                    stockEntries: [
+                        {
+                            id: `stock-${Date.now()}`,
+                            date: String(formData.get('date') || buildRelativeIsoDate(0)).trim(),
+                            item_name: itemName,
+                            category: String(formData.get('category') || '').trim() || business.sector || 'Retail',
+                            unit: String(formData.get('unit') || '').trim() || 'units',
+                            on_hand: Math.max(0, Math.round(toNumber(formData.get('on_hand')))),
+                            received: Math.max(0, Math.round(toNumber(formData.get('received')))),
+                            sold,
+                            reorder_level: Math.max(0, Math.round(toNumber(formData.get('reorder_level')))),
+                            selling_price: sellingPrice,
+                        },
+                        ...(current.stockEntries || []),
+                    ].slice(0, 24),
+                    monthlySales,
+                };
+            });
+
+            renderApp();
+            showFormMessage('[data-owner-stock-message]', 'success', 'Stock entry saved and the owner charts were refreshed.');
+        });
+    }
+
+    if (documentForm && documentForm.dataset.bound !== 'true') {
+        documentForm.dataset.bound = 'true';
+        documentForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            const formData = new FormData(documentForm);
+            const name = String(formData.get('name') || '').trim();
+
+            if (!name) {
+                showFormMessage('[data-owner-document-message]', 'error', 'Document name is required.');
+                return;
+            }
+
+            updateOwnerWorkspaceData(business, (current) => ({
+                ...current,
+                documents: [
+                    {
+                        id: `doc-${Date.now()}`,
+                        name,
+                        type: String(formData.get('type') || '').trim() || 'General',
+                        reference: String(formData.get('reference') || '').trim(),
+                        due_date: String(formData.get('due_date') || '').trim(),
+                        status: String(formData.get('status') || '').trim() || 'Pending',
+                    },
+                    ...(current.documents || []),
+                ].slice(0, 10),
+            }));
+
+            renderApp();
+            showFormMessage('[data-owner-document-message]', 'success', 'Document tracker updated.');
+        });
+    }
+
+    if (creditForm && creditForm.dataset.bound !== 'true') {
+        creditForm.dataset.bound = 'true';
+        creditForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            const formData = new FormData(creditForm);
+            const requestedAmount = Math.max(0, Math.round(toNumber(formData.get('requested_amount'))));
+
+            if (requestedAmount <= 0) {
+                showFormMessage('[data-owner-credit-message]', 'error', 'Requested amount must be greater than zero.');
+                return;
+            }
+
+            const ninNumber = String(formData.get('nin_number') || '').trim().toUpperCase();
+            const registrationStatus = ninNumber
+                ? 'submitted'
+                : business.is_credit_ready ? 'eligible' : 'not_started';
+
+            saveBusinessEdit(business.id, {
+                nin_number: ninNumber,
+                credit_registration_status: registrationStatus,
+                credit_registration_reference: ninNumber ? `LL-${String(Date.now()).slice(-6)}` : '',
+                credit_registration_submitted_at: ninNumber ? new Date().toISOString() : '',
+            });
+
+            updateOwnerWorkspaceData(business, (current) => ({
+                ...current,
+                creditProfile: {
+                    ...(current.creditProfile || {}),
+                    requested_amount: requestedAmount,
+                    repayment_window: String(formData.get('repayment_window') || '').trim() || '6 months',
+                    supplier_score: clampScoreValue(formData.get('supplier_score')),
+                    bookkeeping_score: clampScoreValue(formData.get('bookkeeping_score')),
+                    loan_purpose: String(formData.get('loan_purpose') || '').trim(),
+                    collateral_notes: String(formData.get('collateral_notes') || '').trim(),
+                    registration_status: 'Front-end intake updated',
+                },
+            }));
+
+            renderApp();
+            showFormMessage('[data-owner-credit-message]', 'success', 'Credit registration draft saved and the owner score was recalculated.');
+        });
+    }
 };
 
 const bindShellActions = () => {
@@ -1666,7 +2854,7 @@ const createChart = (id, configuration) => {
     chartInstances.push(new Chart(element, configuration));
 };
 
-const initCharts = (page) => {
+const initCharts = (page, session, businesses) => {
     destroyCharts();
 
     if (!window.Chart) {
@@ -1814,6 +3002,92 @@ const initCharts = (page) => {
             },
         });
     }
+
+    if (page === 'workspace' && session?.user?.role === 'business_owner') {
+        const business = getOwnerBusiness(session.user, businesses);
+
+        if (!business) {
+            return;
+        }
+
+        const ownerData = getOwnerWorkspaceData(business);
+        const analytics = buildOwnerWorkspaceAnalytics(business, ownerData);
+
+        if (analytics.latestStock.length > 0) {
+            createChart('ownerStockPositionChart', {
+                type: 'bar',
+                data: {
+                    labels: analytics.latestStock.map((entry) => entry.item_name),
+                    datasets: [
+                        {
+                            label: 'Stock on hand',
+                            data: analytics.latestStock.map((entry) => toNumber(entry.on_hand)),
+                            backgroundColor: palette.forest,
+                            borderRadius: 8,
+                            maxBarThickness: 42,
+                        },
+                        {
+                            label: 'Reorder level',
+                            data: analytics.latestStock.map((entry) => toNumber(entry.reorder_level)),
+                            backgroundColor: palette.amber,
+                            borderRadius: 8,
+                            maxBarThickness: 42,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true, grid: { color: palette.grid } },
+                    },
+                },
+            });
+        }
+
+        if ((ownerData.monthlySales || []).length > 0) {
+            createChart('ownerSalesTrendChart', {
+                type: 'line',
+                data: {
+                    labels: ownerData.monthlySales.map((entry) => entry.label),
+                    datasets: [
+                        {
+                            label: 'Revenue',
+                            data: ownerData.monthlySales.map((entry) => toNumber(entry.revenue)),
+                            borderColor: palette.forest,
+                            backgroundColor: palette.forestSoft,
+                            borderWidth: 3,
+                            tension: 0.35,
+                            fill: true,
+                        },
+                        {
+                            label: 'Expenses',
+                            data: ownerData.monthlySales.map((entry) => toNumber(entry.expenses)),
+                            borderColor: palette.clay,
+                            borderWidth: 2,
+                            tension: 0.35,
+                            fill: false,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: palette.grid },
+                            ticks: {
+                                callback: (value) => `UGX ${Math.round(toNumber(value) / 1000000)}M`,
+                            },
+                        },
+                    },
+                },
+            });
+        }
+    }
 };
 
 const renderApp = () => {
@@ -1824,6 +3098,11 @@ const renderApp = () => {
 
     if (!session?.user && !publicPages.has(page)) {
         setCurrentPage('dashboard');
+        return;
+    }
+
+    if (session?.user?.role === 'business_owner' && page === 'registration') {
+        setCurrentPage('workspace');
         return;
     }
 
@@ -1850,8 +3129,12 @@ const renderApp = () => {
         bindLoginPage();
     }
 
+    if (page === 'workspace' && session?.user?.role === 'business_owner') {
+        bindOwnerWorkspace(session, businesses);
+    }
+
     if (session?.user) {
-        initCharts(page);
+        initCharts(page, session, businesses);
     } else {
         destroyCharts();
     }

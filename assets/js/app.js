@@ -236,8 +236,10 @@ const configuredApiBaseUrl = (appData.apiBaseUrl || 'http://127.0.0.1:8001/api')
 const localApiBaseUrl = 'http://127.0.0.1:8001/api';
 const apiBaseUrl = isLocalFrontend ? localApiBaseUrl : configuredApiBaseUrl;
 const authStorageKey = 'ledgerlift.auth.session';
+const ownerWorkspaceStorageKey = 'ledgerlift.owner.workspace.data';
 const publicPages = new Set(['dashboard', 'login', 'credit', 'government']);
 const officialRoles = new Set(['government', 'lender', 'field_agent']);
+let ownerWorkspaceCharts = [];
 const ugxFormatter = new Intl.NumberFormat('en-UG', {
     style: 'currency',
     currency: 'UGX',
@@ -480,6 +482,424 @@ const averageRounded = (values) => values.length
 
 const formatCurrencyUGX = (value) => ugxFormatter.format(toNumber(value));
 
+const formatSignedCurrencyUGX = (value) => {
+    const numericValue = toNumber(value);
+    return `${numericValue >= 0 ? '+' : '-'}${formatCurrencyUGX(Math.abs(numericValue))}`;
+};
+
+const escapeMarkup = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const clampScoreValue = (value) => Math.max(0, Math.min(100, Math.round(toNumber(value))));
+
+const averageValue = (values) => values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
+
+const buildRelativeIsoDate = (daysAgo = 0) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - daysAgo);
+    return date.toISOString().slice(0, 10);
+};
+
+const buildFutureIsoDate = (monthsAhead = 0) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setMonth(date.getMonth() + monthsAhead);
+    return date.toISOString().slice(0, 10);
+};
+
+const buildTrailingMonthLabels = () => Array.from({ length: 6 }, (_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(1);
+    date.setMonth(date.getMonth() - (5 - index));
+    return date.toLocaleDateString(undefined, { month: 'short' });
+});
+
+const getOwnerWorkspaceItems = (business) => {
+    const parsedItems = String(business?.stock_focus || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    return parsedItems.length ? parsedItems : ['Fast movers', 'Core groceries', 'Seasonal stock'];
+};
+
+const readOwnerWorkspaceStore = () => {
+    try {
+        const raw = window.localStorage.getItem(ownerWorkspaceStorageKey);
+        return raw ? JSON.parse(raw) : {};
+    } catch (error) {
+        return {};
+    }
+};
+
+const writeOwnerWorkspaceStore = (store) => {
+    try {
+        window.localStorage.setItem(ownerWorkspaceStorageKey, JSON.stringify(store));
+    } catch (error) {
+        // Ignore browser storage errors and keep the workspace usable.
+    }
+};
+
+const buildOwnerSeedMonthlySales = (business) => {
+    const labels = buildTrailingMonthLabels();
+    const revenueBase = Math.max(
+        toNumber(business?.average_monthly_mobile_money) + toNumber(business?.average_monthly_profit),
+        toNumber(business?.inventory_value_estimate),
+        1800000,
+    );
+
+    return labels.map((label, index) => {
+        const multiplier = 0.8 + (index * 0.07);
+        const revenue = Math.round((revenueBase * multiplier) / 1000) * 1000;
+        return {
+            id: `seed-sales-${label.toLowerCase()}`,
+            label,
+            revenue,
+            expenses: Math.round(revenue * 0.68),
+            orders: 84 + (index * 12),
+        };
+    });
+};
+
+const buildOwnerSeedStockEntries = (business) => {
+    const items = getOwnerWorkspaceItems(business);
+    const priceHint = Math.max(
+        Math.round(Math.max(toNumber(business?.average_monthly_profit) / 45, 2500) / 100) * 100,
+        2500,
+    );
+
+    return items.slice(0, 3).map((item, index) => ({
+        id: `seed-stock-${index}`,
+        date: buildRelativeIsoDate(2 - index),
+        item_name: item,
+        category: business?.sector || 'Retail',
+        unit: 'units',
+        on_hand: Math.max(8, 38 - (index * 7)),
+        received: 12 + (index * 4),
+        sold: 7 + (index * 3),
+        reorder_level: 12 + (index * 2),
+        selling_price: priceHint,
+    }));
+};
+
+const buildOwnerSeedDocuments = (business) => [
+    {
+        id: 'seed-doc-licence',
+        name: 'Trading licence',
+        type: 'Compliance',
+        reference: `${String(business?.district || 'BUS').slice(0, 3).toUpperCase()}-2026-114`,
+        due_date: buildFutureIsoDate(1),
+        status: 'Ready',
+    },
+    {
+        id: 'seed-doc-finance',
+        name: 'Mobile money statement',
+        type: 'Finance',
+        reference: 'Last 90 days',
+        due_date: buildFutureIsoDate(0),
+        status: 'Ready',
+    },
+    {
+        id: 'seed-doc-tax',
+        name: 'TIN and tax summary',
+        type: 'Tax',
+        reference: business?.tin_number || 'Pending TIN capture',
+        due_date: '',
+        status: business?.tin_number ? 'Ready' : 'Pending',
+    },
+];
+
+const buildOwnerSeedCreditProfile = (business, monthlySales) => {
+    const averageMonthlyRevenue = averageValue(monthlySales.map((entry) => toNumber(entry.revenue)));
+
+    return {
+        requested_amount: Math.max(350000, Math.round((averageMonthlyRevenue * 0.35) / 1000) * 1000),
+        loan_purpose: `Increase ${getOwnerWorkspaceItems(business)[0].toLowerCase()} stock depth`,
+        repayment_window: '6 months',
+        bookkeeping_score: clampScoreValue((business?.receipt_trust_score || 0) || 72),
+        supplier_score: clampScoreValue((business?.consistency_score || 0) || 74),
+        collateral_notes: 'Inventory, receipt trail, and mobile-money record available for review.',
+        registration_status: 'Draft front-end intake',
+    };
+};
+
+const normalizeOwnerWorkspaceData = (value, business) => {
+    const seedMonthlySales = buildOwnerSeedMonthlySales(business);
+    const seed = {
+        stockEntries: buildOwnerSeedStockEntries(business),
+        monthlySales: seedMonthlySales,
+        documents: buildOwnerSeedDocuments(business),
+        creditProfile: buildOwnerSeedCreditProfile(business, seedMonthlySales),
+    };
+
+    return {
+        stockEntries: Array.isArray(value?.stockEntries) && value.stockEntries.length > 0
+            ? value.stockEntries
+            : seed.stockEntries,
+        monthlySales: Array.isArray(value?.monthlySales) && value.monthlySales.length > 0
+            ? value.monthlySales
+            : seed.monthlySales,
+        documents: Array.isArray(value?.documents) && value.documents.length > 0
+            ? value.documents
+            : seed.documents,
+        creditProfile: {
+            ...seed.creditProfile,
+            ...(value?.creditProfile || {}),
+        },
+    };
+};
+
+const getOwnerWorkspaceData = (business) => {
+    if (!business?.id) {
+        return normalizeOwnerWorkspaceData({}, business || {});
+    }
+
+    const store = readOwnerWorkspaceStore();
+    const normalized = normalizeOwnerWorkspaceData(store[business.id], business);
+    store[business.id] = normalized;
+    writeOwnerWorkspaceStore(store);
+    return normalized;
+};
+
+const updateOwnerWorkspaceData = (business, updater) => {
+    if (!business?.id) {
+        return null;
+    }
+
+    const store = readOwnerWorkspaceStore();
+    const current = normalizeOwnerWorkspaceData(store[business.id], business);
+    const nextValue = typeof updater === 'function'
+        ? updater(current)
+        : { ...current, ...updater };
+    const normalized = normalizeOwnerWorkspaceData(nextValue, business);
+
+    store[business.id] = normalized;
+    writeOwnerWorkspaceStore(store);
+    return normalized;
+};
+
+const getLatestOwnerStockEntries = (stockEntries) => {
+    const seenItems = new Set();
+
+    return [...stockEntries]
+        .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))
+        .filter((entry) => {
+            const key = String(entry.item_name || '').trim().toLowerCase();
+
+            if (!key || seenItems.has(key)) {
+                return false;
+            }
+
+            seenItems.add(key);
+            return true;
+        });
+};
+
+const buildOwnerCreditPreview = (business, ownerData, latestStock, averageRevenue, readyDocuments) => {
+    const inventoryDiscipline = latestStock.length
+        ? Math.round(averageValue(
+            latestStock.map((entry) => (toNumber(entry.on_hand) > toNumber(entry.reorder_level) ? 88 : 54)),
+        ))
+        : 55;
+    const documentCoverage = ownerData.documents.length
+        ? Math.round((readyDocuments / ownerData.documents.length) * 100)
+        : 0;
+    const requestedAmount = toNumber(ownerData.creditProfile.requested_amount);
+    const revenueCoverage = averageRevenue > 0 ? requestedAmount / averageRevenue : 0;
+    const affordability = averageRevenue > 0
+        ? clampScoreValue(100 - Math.max(0, (revenueCoverage - 0.45) * 120))
+        : 40;
+
+    const score = clampScoreValue(
+        ((business.credit_score || 0) * 0.3)
+        + ((business.profile_score || 0) * 0.15)
+        + (documentCoverage * 0.15)
+        + (inventoryDiscipline * 0.15)
+        + (clampScoreValue(ownerData.creditProfile.bookkeeping_score) * 0.1)
+        + (clampScoreValue(ownerData.creditProfile.supplier_score) * 0.1)
+        + (affordability * 0.05),
+    );
+
+    const band = score >= 82
+        ? 'Investor-ready'
+        : score >= 70
+            ? 'Growth-ready'
+            : score >= 58
+                ? 'Needs more evidence'
+                : 'Early-stage';
+
+    const note = band === 'Investor-ready'
+        ? 'The current operating evidence is strong enough for a lender-facing conversation.'
+        : band === 'Growth-ready'
+            ? 'The credit pack is close. Keep stock updates and business documents current to move higher.'
+            : band === 'Needs more evidence'
+                ? 'Add stronger stock history, recent documents, and bookkeeping discipline before external review.'
+                : 'Build a fuller operating history before starting a lender discussion.';
+
+    return {
+        score,
+        band,
+        note,
+        documentCoverage,
+        affordability,
+        inventoryDiscipline,
+    };
+};
+
+const buildOwnerWorkspaceAnalytics = (business, ownerData) => {
+    const latestStock = getLatestOwnerStockEntries(ownerData.stockEntries || []);
+    const lowStockCount = latestStock.filter((entry) => toNumber(entry.on_hand) <= toNumber(entry.reorder_level)).length;
+    const totalOnHand = latestStock.reduce((sum, entry) => sum + toNumber(entry.on_hand), 0);
+    const weeklyUnitsSold = (ownerData.stockEntries || [])
+        .filter((entry) => {
+            const entryDate = new Date(entry.date);
+            const today = new Date();
+            const diffInDays = (today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24);
+            return Number.isFinite(diffInDays) && diffInDays <= 7;
+        })
+        .reduce((sum, entry) => sum + toNumber(entry.sold), 0);
+    const totalRevenue = (ownerData.monthlySales || []).reduce((sum, entry) => sum + toNumber(entry.revenue), 0);
+    const totalOrders = (ownerData.monthlySales || []).reduce((sum, entry) => sum + toNumber(entry.orders), 0);
+    const averageRevenue = averageValue((ownerData.monthlySales || []).map((entry) => toNumber(entry.revenue)));
+    const grossMargin = Math.round(averageValue(
+        (ownerData.monthlySales || []).map((entry) => {
+            const revenue = toNumber(entry.revenue);
+            return revenue > 0 ? ((revenue - toNumber(entry.expenses)) / revenue) * 100 : 0;
+        }),
+    ));
+    const bestMonth = (ownerData.monthlySales || []).reduce((best, entry) => (
+        toNumber(entry.revenue) > toNumber(best.revenue) ? entry : best
+    ), ownerData.monthlySales?.[0] || { label: 'N/A', revenue: 0 });
+    const firstMonth = ownerData.monthlySales?.[0];
+    const lastMonth = ownerData.monthlySales?.[ownerData.monthlySales.length - 1];
+    const salesMomentum = firstMonth && lastMonth
+        ? toNumber(lastMonth.revenue) - toNumber(firstMonth.revenue)
+        : 0;
+    const readyDocuments = (ownerData.documents || []).filter((document) => ['ready', 'submitted', 'verified', 'active'].includes(String(document.status || '').trim().toLowerCase())).length;
+    const creditPreview = buildOwnerCreditPreview(business, ownerData, latestStock, averageRevenue, readyDocuments);
+
+    return {
+        latestStock,
+        lowStockCount,
+        totalOnHand,
+        weeklyUnitsSold,
+        totalRevenue,
+        totalOrders,
+        averageRevenue,
+        grossMargin,
+        bestMonth,
+        currentMonth: lastMonth || { label: 'This month', revenue: 0, orders: 0, expenses: 0 },
+        salesMomentum,
+        readyDocuments,
+        documentCount: ownerData.documents?.length || 0,
+        creditPreview,
+    };
+};
+
+const destroyOwnerWorkspaceCharts = () => {
+    ownerWorkspaceCharts.forEach((chart) => chart.destroy());
+    ownerWorkspaceCharts = [];
+};
+
+const createOwnerWorkspaceChart = (id, configuration) => {
+    const chart = createChart(id, configuration);
+
+    if (chart) {
+        ownerWorkspaceCharts.push(chart);
+    }
+};
+
+const renderOwnerWorkspaceCharts = (ownerData, analytics) => {
+    destroyOwnerWorkspaceCharts();
+
+    if (!window.Chart) {
+        return;
+    }
+
+    if (analytics.latestStock.length > 0) {
+        createOwnerWorkspaceChart('ownerStockPositionChart', {
+            type: 'bar',
+            data: {
+                labels: analytics.latestStock.map((entry) => entry.item_name),
+                datasets: [
+                    {
+                        label: 'Stock on hand',
+                        data: analytics.latestStock.map((entry) => toNumber(entry.on_hand)),
+                        backgroundColor: palette.forest,
+                        borderRadius: 10,
+                        maxBarThickness: 42,
+                    },
+                    {
+                        label: 'Reorder level',
+                        data: analytics.latestStock.map((entry) => toNumber(entry.reorder_level)),
+                        backgroundColor: palette.amber,
+                        borderRadius: 10,
+                        maxBarThickness: 42,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: true, grid: { color: palette.grid } },
+                },
+            },
+        });
+    }
+
+    if ((ownerData.monthlySales || []).length > 0) {
+        createOwnerWorkspaceChart('ownerSalesTrendChart', {
+            type: 'line',
+            data: {
+                labels: ownerData.monthlySales.map((entry) => entry.label),
+                datasets: [
+                    {
+                        label: 'Revenue',
+                        data: ownerData.monthlySales.map((entry) => toNumber(entry.revenue)),
+                        borderColor: palette.forest,
+                        backgroundColor: palette.forestSoft,
+                        borderWidth: 3,
+                        tension: 0.35,
+                        fill: true,
+                    },
+                    {
+                        label: 'Expenses',
+                        data: ownerData.monthlySales.map((entry) => toNumber(entry.expenses)),
+                        borderColor: palette.clay,
+                        borderWidth: 2,
+                        tension: 0.35,
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { display: false } },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: palette.grid },
+                        ticks: {
+                            callback: (value) => `UGX ${Math.round(toNumber(value) / 1000000)}M`,
+                        },
+                    },
+                },
+            },
+        });
+    }
+};
+
 const formatRiskLabel = (level) => {
     if (level === 'low') {
         return 'Low risk';
@@ -633,6 +1053,39 @@ const showOwnerWorkspaceMessage = (message, tone) => {
 
     ownerMessage.textContent = message;
     ownerMessage.className = `form-status form-status-${tone} is-visible`;
+};
+
+const showOwnerStockMessage = (message, tone) => {
+    const stockMessage = workspaceContainer?.querySelector('[data-owner-stock-message]');
+
+    if (!stockMessage) {
+        return;
+    }
+
+    stockMessage.textContent = message;
+    stockMessage.className = `form-status form-status-${tone} is-visible`;
+};
+
+const showOwnerDocumentMessage = (message, tone) => {
+    const documentMessage = workspaceContainer?.querySelector('[data-owner-document-message]');
+
+    if (!documentMessage) {
+        return;
+    }
+
+    documentMessage.textContent = message;
+    documentMessage.className = `form-status form-status-${tone} is-visible`;
+};
+
+const showOwnerCreditIntakeMessage = (message, tone) => {
+    const creditIntakeMessage = workspaceContainer?.querySelector('[data-owner-credit-intake-message]');
+
+    if (!creditIntakeMessage) {
+        return;
+    }
+
+    creditIntakeMessage.textContent = message;
+    creditIntakeMessage.className = `form-status form-status-${tone} is-visible`;
 };
 
 const showCreditRegistrationMessage = (message, tone) => {
@@ -797,6 +1250,144 @@ const bindOwnerBusinessForm = (session) => {
                 ownerSubmit.textContent = 'Save adjustments';
             }
         }
+    });
+};
+
+const bindOwnerStockForm = (session, businesses, business) => {
+    const stockForm = workspaceContainer?.querySelector('[data-owner-stock-form]');
+
+    if (!stockForm || stockForm.dataset.bound === 'true') {
+        return;
+    }
+
+    stockForm.dataset.bound = 'true';
+    stockForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(stockForm);
+        const itemName = String(formData.get('item_name') || '').trim();
+
+        if (!itemName) {
+            showOwnerStockMessage('Add the stock item name before saving the entry.', 'error');
+            return;
+        }
+
+        const sold = Math.max(0, Math.round(toNumber(formData.get('sold'))));
+        const sellingPrice = Math.max(0, toNumber(formData.get('selling_price')));
+
+        updateOwnerWorkspaceData(business, (current) => {
+            const monthlySales = [...(current.monthlySales || [])];
+
+            if (monthlySales.length > 0) {
+                const lastIndex = monthlySales.length - 1;
+                const currentMonth = monthlySales[lastIndex];
+                monthlySales[lastIndex] = {
+                    ...currentMonth,
+                    revenue: Math.round(toNumber(currentMonth.revenue) + (sold * sellingPrice)),
+                    orders: Math.round(toNumber(currentMonth.orders) + sold),
+                };
+            }
+
+            return {
+                ...current,
+                stockEntries: [
+                    {
+                        id: `stock-${Date.now()}`,
+                        date: String(formData.get('date') || buildRelativeIsoDate(0)).trim(),
+                        item_name: itemName,
+                        category: String(formData.get('category') || '').trim() || business.sector || 'Retail',
+                        unit: String(formData.get('unit') || '').trim() || 'units',
+                        on_hand: Math.max(0, Math.round(toNumber(formData.get('on_hand')))),
+                        received: Math.max(0, Math.round(toNumber(formData.get('received')))),
+                        sold,
+                        reorder_level: Math.max(0, Math.round(toNumber(formData.get('reorder_level')))),
+                        selling_price: sellingPrice,
+                    },
+                    ...(current.stockEntries || []),
+                ].slice(0, 24),
+                monthlySales,
+            };
+        });
+
+        renderWorkspace(session, businesses);
+        showOwnerStockMessage('Stock entry saved. The charts and monthly report were refreshed.', 'success');
+    });
+};
+
+const bindOwnerDocumentForm = (session, businesses, business) => {
+    const documentForm = workspaceContainer?.querySelector('[data-owner-document-form]');
+
+    if (!documentForm || documentForm.dataset.bound === 'true') {
+        return;
+    }
+
+    documentForm.dataset.bound = 'true';
+    documentForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(documentForm);
+        const name = String(formData.get('name') || '').trim();
+
+        if (!name) {
+            showOwnerDocumentMessage('Document name is required.', 'error');
+            return;
+        }
+
+        updateOwnerWorkspaceData(business, (current) => ({
+            ...current,
+            documents: [
+                {
+                    id: `doc-${Date.now()}`,
+                    name,
+                    type: String(formData.get('type') || '').trim() || 'General',
+                    reference: String(formData.get('reference') || '').trim(),
+                    due_date: String(formData.get('due_date') || '').trim(),
+                    status: String(formData.get('status') || '').trim() || 'Pending',
+                },
+                ...(current.documents || []),
+            ].slice(0, 10),
+        }));
+
+        renderWorkspace(session, businesses);
+        showOwnerDocumentMessage('Document tracker updated for this business.', 'success');
+    });
+};
+
+const bindOwnerCreditIntakeForm = (session, businesses, business) => {
+    const creditIntakeForm = workspaceContainer?.querySelector('[data-owner-credit-intake-form]');
+
+    if (!creditIntakeForm || creditIntakeForm.dataset.bound === 'true') {
+        return;
+    }
+
+    creditIntakeForm.dataset.bound = 'true';
+    creditIntakeForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(creditIntakeForm);
+        const requestedAmount = Math.max(0, Math.round(toNumber(formData.get('requested_amount'))));
+
+        if (requestedAmount <= 0) {
+            showOwnerCreditIntakeMessage('Requested amount must be greater than zero.', 'error');
+            return;
+        }
+
+        updateOwnerWorkspaceData(business, (current) => ({
+            ...current,
+            creditProfile: {
+                ...(current.creditProfile || {}),
+                requested_amount: requestedAmount,
+                loan_purpose: String(formData.get('loan_purpose') || '').trim(),
+                repayment_window: String(formData.get('repayment_window') || '').trim() || '6 months',
+                bookkeeping_score: clampScoreValue(formData.get('bookkeeping_score')),
+                supplier_score: clampScoreValue(formData.get('supplier_score')),
+                collateral_notes: String(formData.get('collateral_notes') || '').trim(),
+                registration_status: 'Front-end intake updated',
+            },
+        }));
+
+        renderWorkspace(session, businesses);
+        showOwnerCreditIntakeMessage('Front-end credit intake saved and the preview score was recalculated.', 'success');
     });
 };
 
@@ -1491,13 +2082,15 @@ const renderWorkspace = (session, businesses) => {
     const renderBusinessOwnerWorkspace = () => {
         const business = getOwnerBusiness(user, businesses);
 
+        destroyOwnerWorkspaceCharts();
+
         if (workspaceTitle) {
             workspaceTitle.textContent = blueprint.workspaceTitle;
         }
 
         if (workspaceDescription) {
             workspaceDescription.textContent = business
-                ? `Track ${business.business_name}, review profile quality, and save changes that remain attached to your account for the next session.`
+                ? `Track ${business.business_name}, log daily stock, review live graphs, and keep a lender-ready business pack in one workspace.`
                 : blueprint.workspaceDescription;
         }
 
@@ -1542,12 +2135,26 @@ const renderWorkspace = (session, businesses) => {
             return;
         }
 
+        const ownerData = getOwnerWorkspaceData(business);
+        const analytics = buildOwnerWorkspaceAnalytics(business, ownerData);
+        const creditPreview = analytics.creditPreview;
+        const ownerGuidance = [
+            ...buildOwnerGuidance(business),
+            creditPreview.note,
+            analytics.lowStockCount > 0
+                ? `${analytics.lowStockCount} stock lines are at or below the reorder level and need attention.`
+                : 'All tracked stock lines are currently above the reorder level.',
+            analytics.readyDocuments < analytics.documentCount
+                ? `Finish the remaining business documents so the credit pack is complete before review.`
+                : 'The current document pack is complete enough for a lender or compliance check-in.',
+        ].slice(0, 5);
+
         if (roleMetrics) {
             roleMetrics.innerHTML = renderWorkspaceMetricTiles([
-                { label: 'Profile score', value: `${business.profile_score}/100`, detail: business.profile_label },
-                { label: 'Credit score', value: `${business.credit_score || 0}/100`, detail: business.credit_label || 'Pending review' },
-                { label: 'Fraud watch', value: formatRiskLabel(business.fraud_risk_level), detail: `${business.consistency_score || 0}/100 consistency score` },
-                { label: 'Receipt trust', value: `${business.receipt_trust_score || 0}/100`, detail: `${business.receipt_count || 0} receipts worth ${formatCurrencyUGX(business.receipt_value_total)}` },
+                { label: 'Stock lines tracked', value: String(analytics.latestStock.length), detail: `${analytics.lowStockCount} below reorder level` },
+                { label: 'Sales this month', value: formatCurrencyUGX(analytics.currentMonth.revenue), detail: `${Math.round(toNumber(analytics.currentMonth.orders))} ticketed units sold` },
+                { label: 'Document pack', value: `${analytics.readyDocuments}/${analytics.documentCount}`, detail: 'Ready or submitted business files' },
+                { label: 'Credit preview', value: `${creditPreview.score}/100`, detail: creditPreview.band },
             ]);
         }
 
@@ -1558,22 +2165,263 @@ const renderWorkspace = (session, businesses) => {
                         <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
                             <div>
                                 <p class="section-kicker mb-2">My business snapshot</p>
-                                <strong class="d-block mb-2">${business.business_name}</strong>
-                                <p class="text-muted mb-0">${business.owner_name} · ${business.sector} · ${business.district}</p>
+                                <strong class="d-block mb-2">${escapeMarkup(business.business_name)}</strong>
+                                <p class="text-muted mb-0">${escapeMarkup(business.owner_name)} · ${escapeMarkup(business.sector)} · ${escapeMarkup(business.district)}</p>
                             </div>
                             <span class="pill-note ${business.profile_score >= 75 ? 'pill-note-success' : 'pill-note-muted'} align-self-start">${business.profile_label}</span>
                         </div>
                         <div class="workspace-detail-grid owner-summary-grid">
-                            <div class="workspace-detail-item"><span>Phone</span><strong>${business.phone_number || 'Not provided'}</strong></div>
-                            <div class="workspace-detail-item"><span>Mobile money</span><strong>${business.mobile_money_number || 'Not provided'}</strong></div>
-                            <div class="workspace-detail-item"><span>TIN</span><strong>${business.tin_number || 'Not provided'}</strong></div>
-                            <div class="workspace-detail-item"><span>NIN status</span><strong>${business.nin_verification_status_label || 'Not submitted'}</strong></div>
+                            <div class="workspace-detail-item"><span>Profile score</span><strong>${business.profile_score}/100 · ${business.profile_label}</strong></div>
+                            <div class="workspace-detail-item"><span>Current credit</span><strong>${business.credit_score || 0}/100 · ${business.credit_label || 'Pending review'}</strong></div>
+                            <div class="workspace-detail-item"><span>Phone</span><strong>${escapeMarkup(business.phone_number || 'Not provided')}</strong></div>
+                            <div class="workspace-detail-item"><span>Mobile money</span><strong>${escapeMarkup(business.mobile_money_number || 'Not provided')}</strong></div>
+                            <div class="workspace-detail-item"><span>TIN</span><strong>${escapeMarkup(business.tin_number || 'Not provided')}</strong></div>
+                            <div class="workspace-detail-item"><span>NIN status</span><strong>${escapeMarkup(business.nin_verification_status_label || 'Not submitted')}</strong></div>
                             <div class="workspace-detail-item"><span>Employees</span><strong>${business.employee_count || 1}</strong></div>
-                            <div class="workspace-detail-item"><span>Credit score</span><strong>${business.credit_score || 0}/100</strong></div>
-                            <div class="workspace-detail-item workspace-detail-item-wide"><span>Location</span><strong>${business.location_description || 'No location details on file yet.'}</strong></div>
-                            <div class="workspace-detail-item workspace-detail-item-wide"><span>Stock focus</span><strong>${business.stock_focus || 'No stock focus recorded yet.'}</strong></div>
+                            <div class="workspace-detail-item"><span>Last sync</span><strong>${formatWorkspaceDate(business.updated_at)}</strong></div>
+                            <div class="workspace-detail-item workspace-detail-item-wide"><span>Location</span><strong>${escapeMarkup(business.location_description || 'No location details on file yet.')}</strong></div>
+                            <div class="workspace-detail-item workspace-detail-item-wide"><span>Stock focus</span><strong>${escapeMarkup(business.stock_focus || 'No stock focus recorded yet.')}</strong></div>
                         </div>
                     </article>
+                </div>
+                <div class="col-xl-7">
+                    <article class="panel owner-stock-panel h-100">
+                        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                            <div>
+                                <p class="section-kicker mb-2">Daily stock input</p>
+                                <strong class="d-block mb-2">Log inventory movement for the business</strong>
+                                <p class="text-muted mb-0">Each stock entry updates the owner charts and pushes the current monthly report forward.</p>
+                            </div>
+                            <span class="pill-note ${analytics.lowStockCount === 0 ? 'pill-note-success' : 'pill-note-danger'} align-self-start">${analytics.lowStockCount === 0 ? 'Stock healthy' : `${analytics.lowStockCount} reorder alerts`}</span>
+                        </div>
+                        <div class="workspace-detail-grid mb-4">
+                            <div class="workspace-detail-item"><span>Tracked items</span><strong>${analytics.latestStock.length}</strong></div>
+                            <div class="workspace-detail-item"><span>Units on hand</span><strong>${Math.round(analytics.totalOnHand)}</strong></div>
+                            <div class="workspace-detail-item"><span>7-day sold</span><strong>${Math.round(analytics.weeklyUnitsSold)}</strong></div>
+                            <div class="workspace-detail-item"><span>Receipt trust</span><strong>${business.receipt_trust_score || 0}/100</strong></div>
+                        </div>
+                        <form class="row g-3" data-owner-stock-form data-business-id="${business.id}">
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_stock_date">Entry date</label>
+                                <input class="form-control" id="owner_stock_date" name="date" type="date" value="${buildRelativeIsoDate(0)}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_stock_item_name">Stock item</label>
+                                <input class="form-control" id="owner_stock_item_name" name="item_name" type="text" placeholder="Sugar, soap, cooking oil" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_category">Category</label>
+                                <input class="form-control" id="owner_stock_category" name="category" type="text" value="${escapeMarkup(business.sector || 'Retail')}">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_unit">Unit</label>
+                                <input class="form-control" id="owner_stock_unit" name="unit" type="text" value="units">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_selling_price">Selling price per unit (UGX)</label>
+                                <input class="form-control" id="owner_stock_selling_price" name="selling_price" type="number" min="0" step="100" value="${Math.max(2500, Math.round(Math.max(toNumber(business.average_monthly_profit) / 45, 2500) / 100) * 100)}">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_on_hand">Current stock on hand</label>
+                                <input class="form-control" id="owner_stock_on_hand" name="on_hand" type="number" min="0" value="0" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_received">Units received today</label>
+                                <input class="form-control" id="owner_stock_received" name="received" type="number" min="0" value="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_sold">Units sold today</label>
+                                <input class="form-control" id="owner_stock_sold" name="sold" type="number" min="0" value="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="owner_stock_reorder_level">Reorder level</label>
+                                <input class="form-control" id="owner_stock_reorder_level" name="reorder_level" type="number" min="0" value="12">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-status" data-owner-stock-message></div>
+                            </div>
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                                <button class="btn btn-warning btn-lg px-4" type="submit">Save stock entry</button>
+                                <small class="text-muted">This tracker is front-end only for now, but the charts update immediately after each save.</small>
+                            </div>
+                        </form>
+                        <div class="table-responsive mt-4">
+                            <table class="table align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Date</th>
+                                        <th>On hand</th>
+                                        <th>Sold</th>
+                                        <th>Reorder</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(ownerData.stockEntries || [])
+                                        .slice(0, 6)
+                                        .map((entry) => `
+                                            <tr>
+                                                <td>
+                                                    <strong class="d-block">${escapeMarkup(entry.item_name || 'Unnamed item')}</strong>
+                                                    <span class="text-muted small">${escapeMarkup(entry.category || 'Retail')} · ${escapeMarkup(entry.unit || 'units')}</span>
+                                                </td>
+                                                <td>${formatWorkspaceDate(entry.date)}</td>
+                                                <td>${Math.round(toNumber(entry.on_hand))}</td>
+                                                <td>${Math.round(toNumber(entry.sold))}</td>
+                                                <td>${Math.round(toNumber(entry.reorder_level))}</td>
+                                                <td><span class="pill-note ${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'pill-note-danger' : 'pill-note-success'}">${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'Reorder soon' : 'Healthy'}</span></td>
+                                            </tr>
+                                        `)
+                                        .join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                </div>
+                <div class="col-xl-5">
+                    <article class="panel owner-report-panel h-100">
+                        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                            <div>
+                                <p class="section-kicker mb-2">Live graphs and monthly report</p>
+                                <strong class="d-block mb-2">Read business movement as you record it</strong>
+                                <p class="text-muted mb-0">Stock levels and sales trend are refreshed from the same owner workspace data.</p>
+                            </div>
+                            <span class="pill-note pill-note-muted align-self-start">Front-end analytics</span>
+                        </div>
+                        <div class="chart-frame chart-frame-wide mb-4">
+                            <canvas id="ownerStockPositionChart"></canvas>
+                        </div>
+                        <div class="chart-frame chart-frame-tall mb-4">
+                            <canvas id="ownerSalesTrendChart"></canvas>
+                        </div>
+                        <div class="workspace-detail-grid">
+                            <div class="workspace-detail-item"><span>This month sales</span><strong>${formatCurrencyUGX(analytics.currentMonth.revenue)}</strong></div>
+                            <div class="workspace-detail-item"><span>This month orders</span><strong>${Math.round(toNumber(analytics.currentMonth.orders))}</strong></div>
+                            <div class="workspace-detail-item"><span>6-month sales</span><strong>${formatCurrencyUGX(analytics.totalRevenue)}</strong></div>
+                            <div class="workspace-detail-item"><span>Average margin</span><strong>${analytics.grossMargin}%</strong></div>
+                            <div class="workspace-detail-item"><span>Best month</span><strong>${escapeMarkup(analytics.bestMonth.label)} · ${formatCurrencyUGX(analytics.bestMonth.revenue)}</strong></div>
+                            <div class="workspace-detail-item"><span>Momentum</span><strong>${formatSignedCurrencyUGX(analytics.salesMomentum)}</strong></div>
+                        </div>
+                        <div class="registration-feed mt-4">
+                            <div class="feed-item"><p class="mb-0 text-muted">This month the workspace has tracked ${Math.round(analytics.weeklyUnitsSold)} units sold and ${analytics.lowStockCount} stock lines below the reorder threshold.</p></div>
+                            <div class="feed-item"><p class="mb-0 text-muted">Use the latest month graph before lender conversations so the business story stays current.</p></div>
+                        </div>
+                    </article>
+                </div>
+                <div class="col-lg-6">
+                    <article class="panel owner-document-panel h-100">
+                        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                            <div>
+                                <p class="section-kicker mb-2">Business documents</p>
+                                <strong class="d-block mb-2">Track the files needed for compliance and credit</strong>
+                                <p class="text-muted mb-0">Add references for licences, statements, and business papers so the owner pack feels complete.</p>
+                            </div>
+                            <span class="pill-note pill-note-muted align-self-start">Front-end tracker</span>
+                        </div>
+                        <form class="row g-3" data-owner-document-form data-business-id="${business.id}">
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_document_name">Document name</label>
+                                <input class="form-control" id="owner_document_name" name="name" type="text" placeholder="Trading licence" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_document_type">Document type</label>
+                                <input class="form-control" id="owner_document_type" name="type" type="text" placeholder="Compliance, Finance, Tax">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_document_reference">Reference</label>
+                                <input class="form-control" id="owner_document_reference" name="reference" type="text" placeholder="Reference number or note">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="owner_document_due_date">Due date</label>
+                                <input class="form-control" id="owner_document_due_date" name="due_date" type="date">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="owner_document_status">Status</label>
+                                <select class="form-select" id="owner_document_status" name="status">
+                                    <option value="Pending">Pending</option>
+                                    <option value="Ready">Ready</option>
+                                    <option value="Submitted">Submitted</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-status" data-owner-document-message></div>
+                            </div>
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                                <button class="btn btn-outline-success btn-lg px-4" type="submit">Add document reference</button>
+                                <small class="text-muted">This stores document metadata only. File uploads can be added when the backend is ready.</small>
+                            </div>
+                        </form>
+                        <div class="registration-feed mt-4">
+                            ${(ownerData.documents || [])
+                                .slice(0, 5)
+                                .map((document) => `
+                                    <div class="feed-item">
+                                        <div class="d-flex justify-content-between gap-3 mb-2">
+                                            <strong>${escapeMarkup(document.name || 'Untitled document')}</strong>
+                                            <span class="pill-note ${['ready', 'submitted', 'verified', 'active'].includes(String(document.status || '').toLowerCase()) ? 'pill-note-success' : 'pill-note-muted'}">${escapeMarkup(document.status || 'Pending')}</span>
+                                        </div>
+                                        <div class="text-muted small mb-1">${escapeMarkup(document.type || 'General')} · ${escapeMarkup(document.reference || 'No reference yet')}</div>
+                                        <div class="text-muted small">${document.due_date ? `Due ${formatWorkspaceDate(document.due_date)}` : 'No due date recorded'}</div>
+                                    </div>
+                                `)
+                                .join('')}
+                        </div>
+                    </article>
+                </div>
+                <div class="col-lg-6">
+                    <article class="panel owner-credit-intake-panel h-100">
+                        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
+                            <div>
+                                <p class="section-kicker mb-2">Credit score registration</p>
+                                <strong class="d-block mb-2">Capture a front-end lender intake</strong>
+                                <p class="text-muted mb-0">This is a front-end only pre-check for now. It gives the owner a working score pack before backend underwriting arrives.</p>
+                            </div>
+                            <span class="pill-note pill-note-success align-self-start">${creditPreview.score}/100 preview</span>
+                        </div>
+                        <div class="workspace-detail-grid mb-4">
+                            <div class="workspace-detail-item"><span>Credit band</span><strong>${escapeMarkup(creditPreview.band)}</strong></div>
+                            <div class="workspace-detail-item"><span>Document coverage</span><strong>${creditPreview.documentCoverage}%</strong></div>
+                            <div class="workspace-detail-item"><span>Inventory discipline</span><strong>${creditPreview.inventoryDiscipline}%</strong></div>
+                            <div class="workspace-detail-item"><span>Affordability</span><strong>${creditPreview.affordability}%</strong></div>
+                        </div>
+                        <form class="row g-3" data-owner-credit-intake-form data-business-id="${business.id}">
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_credit_requested_amount">Requested amount (UGX)</label>
+                                <input class="form-control" id="owner_credit_requested_amount" name="requested_amount" type="number" min="0" step="1000" value="${Math.round(toNumber(ownerData.creditProfile.requested_amount))}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_credit_repayment_window">Repayment window</label>
+                                <input class="form-control" id="owner_credit_repayment_window" name="repayment_window" type="text" value="${escapeMarkup(ownerData.creditProfile.repayment_window || '6 months')}">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="owner_credit_loan_purpose">Loan purpose</label>
+                                <input class="form-control" id="owner_credit_loan_purpose" name="loan_purpose" type="text" value="${escapeMarkup(ownerData.creditProfile.loan_purpose || '')}" placeholder="Expand stock depth, refrigeration, supplier payments">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_credit_bookkeeping_score">Bookkeeping score</label>
+                                <input class="form-control" id="owner_credit_bookkeeping_score" name="bookkeeping_score" type="number" min="0" max="100" value="${clampScoreValue(ownerData.creditProfile.bookkeeping_score)}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="owner_credit_supplier_score">Supplier confidence</label>
+                                <input class="form-control" id="owner_credit_supplier_score" name="supplier_score" type="number" min="0" max="100" value="${clampScoreValue(ownerData.creditProfile.supplier_score)}">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="owner_credit_collateral_notes">Collateral or supporting notes</label>
+                                <textarea class="form-control" id="owner_credit_collateral_notes" name="collateral_notes" rows="3" placeholder="Inventory, guarantor, mobile-money trail, supplier support">${escapeMarkup(ownerData.creditProfile.collateral_notes || '')}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-status" data-owner-credit-intake-message></div>
+                            </div>
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                                <button class="btn btn-warning btn-lg px-4" type="submit">Save credit intake</button>
+                                <small class="text-muted">Saved only in this browser for now. Backend scoring can be wired into the same panel later.</small>
+                            </div>
+                        </form>
+                    </article>
+                </div>
+                <div class="col-lg-6">
+                    ${buildCreditRegistrationPanel(business)}
                 </div>
                 <div class="col-12">
                     <article class="panel owner-edit-panel h-100">
@@ -1588,31 +2436,31 @@ const renderWorkspace = (session, businesses) => {
                         <form class="row g-3" data-owner-business-form data-business-id="${business.id}">
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_business_name">Business name</label>
-                                <input class="form-control" id="owner_business_name" name="business_name" type="text" value="${business.business_name || ''}" required>
+                                <input class="form-control" id="owner_business_name" name="business_name" type="text" value="${escapeMarkup(business.business_name || '')}" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_phone_number">Phone number</label>
-                                <input class="form-control" id="owner_phone_number" name="phone_number" type="text" value="${business.phone_number || ''}" required>
+                                <input class="form-control" id="owner_phone_number" name="phone_number" type="text" value="${escapeMarkup(business.phone_number || '')}" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_mobile_money_number">Mobile money number</label>
-                                <input class="form-control" id="owner_mobile_money_number" name="mobile_money_number" type="text" value="${business.mobile_money_number || ''}">
+                                <input class="form-control" id="owner_mobile_money_number" name="mobile_money_number" type="text" value="${escapeMarkup(business.mobile_money_number || '')}">
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_tin_number">TIN number</label>
-                                <input class="form-control" id="owner_tin_number" name="tin_number" type="text" value="${business.tin_number || ''}">
+                                <input class="form-control" id="owner_tin_number" name="tin_number" type="text" value="${escapeMarkup(business.tin_number || '')}">
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_district">District</label>
-                                <input class="form-control" id="owner_district" name="district" type="text" value="${business.district || ''}" required>
+                                <input class="form-control" id="owner_district" name="district" type="text" value="${escapeMarkup(business.district || '')}" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_sector">Business sector</label>
-                                <input class="form-control" id="owner_sector" name="sector" type="text" value="${business.sector || ''}" required>
+                                <input class="form-control" id="owner_sector" name="sector" type="text" value="${escapeMarkup(business.sector || '')}" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_monthly_revenue_band">Monthly revenue band</label>
-                                <input class="form-control" id="owner_monthly_revenue_band" name="monthly_revenue_band" type="text" value="${business.monthly_revenue_band || ''}" placeholder="UGX 2M - 6M">
+                                <input class="form-control" id="owner_monthly_revenue_band" name="monthly_revenue_band" type="text" value="${escapeMarkup(business.monthly_revenue_band || '')}" placeholder="UGX 2M - 6M">
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="owner_employee_count">Employee count</label>
@@ -1641,15 +2489,15 @@ const renderWorkspace = (session, businesses) => {
                             </div>
                             <div class="col-12">
                                 <label class="form-label" for="owner_location_description">Location description</label>
-                                <input class="form-control" id="owner_location_description" name="location_description" type="text" value="${business.location_description || ''}" placeholder="Trading centre or market location">
+                                <input class="form-control" id="owner_location_description" name="location_description" type="text" value="${escapeMarkup(business.location_description || '')}" placeholder="Trading centre or market location">
                             </div>
                             <div class="col-12">
                                 <label class="form-label" for="owner_stock_focus">Stock focus</label>
-                                <input class="form-control" id="owner_stock_focus" name="stock_focus" type="text" value="${business.stock_focus || ''}" placeholder="Fast-moving goods, groceries, farm supplies">
+                                <input class="form-control" id="owner_stock_focus" name="stock_focus" type="text" value="${escapeMarkup(business.stock_focus || '')}" placeholder="Fast-moving goods, groceries, farm supplies">
                             </div>
                             <div class="col-12">
                                 <label class="form-label" for="owner_notes">Operating notes</label>
-                                <textarea class="form-control" id="owner_notes" name="notes" rows="3" placeholder="Add useful operational notes for your next session.">${business.notes || ''}</textarea>
+                                <textarea class="form-control" id="owner_notes" name="notes" rows="3" placeholder="Add useful operational notes for your next session.">${escapeMarkup(business.notes || '')}</textarea>
                             </div>
                             <div class="col-12">
                                 <div class="form-status" data-owner-business-message></div>
@@ -1661,31 +2509,34 @@ const renderWorkspace = (session, businesses) => {
                         </form>
                     </article>
                 </div>
-                <div class="col-12">
-                    ${buildCreditRegistrationPanel(business)}
-                </div>
             `;
         }
 
         if (currentUserCard) {
             currentUserCard.innerHTML = `
-                <strong class="d-block mb-2">${user.display_name}</strong>
-                <div class="small mb-1"><strong>Username:</strong> ${user.username}</div>
-                <div class="small mb-1"><strong>Role:</strong> ${user.role_label}</div>
-                <div class="small mb-1"><strong>Linked business:</strong> ${business.business_name}</div>
-                <div class="small mb-1"><strong>Credit score:</strong> ${business.credit_score || 0}/100</div>
+                <strong class="d-block mb-2">${escapeMarkup(user.display_name)}</strong>
+                <div class="small mb-1"><strong>Username:</strong> ${escapeMarkup(user.username)}</div>
+                <div class="small mb-1"><strong>Role:</strong> ${escapeMarkup(user.role_label)}</div>
+                <div class="small mb-1"><strong>Linked business:</strong> ${escapeMarkup(business.business_name)}</div>
+                <div class="small mb-1"><strong>Credit preview:</strong> ${creditPreview.score}/100 · ${escapeMarkup(creditPreview.band)}</div>
+                <div class="small mb-1"><strong>Document pack:</strong> ${analytics.readyDocuments}/${analytics.documentCount} ready</div>
+                <div class="small mb-1"><strong>Reorder alerts:</strong> ${analytics.lowStockCount}</div>
                 <div class="small mb-3"><strong>Last saved:</strong> ${formatWorkspaceDate(business.updated_at)}</div>
                 <a class="btn btn-outline-success btn-sm" href="?page=businesses">View my business profile</a>
             `;
         }
 
         if (roleNotes) {
-            roleNotes.innerHTML = buildOwnerGuidance(business)
+            roleNotes.innerHTML = ownerGuidance
                 .map((note) => `<div class="feed-item"><p class="mb-0 text-muted">${note}</p></div>`)
                 .join('');
         }
 
+        renderOwnerWorkspaceCharts(ownerData, analytics);
         bindOwnerBusinessForm(session);
+        bindOwnerStockForm(session, businesses, business);
+        bindOwnerDocumentForm(session, businesses, business);
+        bindOwnerCreditIntakeForm(session, businesses, business);
         bindCreditRegistrationForm(session);
     };
 

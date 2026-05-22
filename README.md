@@ -60,6 +60,7 @@ GitHub Pages cannot run the PHP frontend or the Django backend. To make demos wo
 
 - Demo registrations are stored in browser local storage.
 - Demo login uses the seeded showcase accounts client-side.
+- The static demo now includes a business-owner workspace with daily stock input, live graphs, monthly sales reporting, document tracking, and a front-end credit registration intake.
 - Charts, registry views, credit pages, and government views all work without a server.
 - Because `docs/` runs entirely in the browser, its local storage data is user-controlled and cannot be made tamper-proof. The signed ledger protection applies to the Django backend, not the static Pages demo.
 
@@ -129,7 +130,7 @@ For local development, Django now reads `backend/.env` automatically before it r
 
 - `Businesses` now loads live registrations from the Django API instead of the original mock PHP list.
 - `Login` authenticates against Django's seeded demo accounts.
-- `Workspace` shows a role-based control room for government, lender, and field-agent users.
+- `Workspace` shows a role-based control room for government, lender, field-agent, and business-owner users.
 
 ## Demo Accounts
 

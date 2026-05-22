@@ -736,6 +736,58 @@ h6,
         linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(250, 247, 236, 0.96));
 }
 
+.owner-stock-panel,
+.owner-report-panel,
+.owner-document-panel,
+.owner-credit-intake-panel {
+    position: relative;
+    overflow: hidden;
+    border-top: 1px solid var(--line);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+}
+
+.owner-stock-panel::before,
+.owner-report-panel::before,
+.owner-document-panel::before,
+.owner-credit-intake-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 4px;
+    background: linear-gradient(90deg, #111111 0 33.33%, #f4d017 33.33% 66.66%, #d32228 66.66% 100%);
+}
+
+.owner-stock-panel .workspace-detail-item,
+.owner-report-panel .workspace-detail-item,
+.owner-credit-intake-panel .workspace-detail-item {
+    background: rgba(255, 255, 255, 0.84);
+    border-color: rgba(16, 24, 40, 0.1);
+}
+
+.owner-document-panel .feed-item {
+    border-color: rgba(16, 24, 40, 0.08);
+}
+
+.owner-stock-panel .table td,
+.owner-stock-panel .table th {
+    vertical-align: middle;
+}
+
+.owner-stock-panel .form-status,
+.owner-document-panel .form-status,
+.owner-credit-intake-panel .form-status {
+    border: 1px solid var(--flag-black-strong);
+}
+
+.owner-report-panel .chart-frame-wide {
+    height: 200px;
+}
+
+.owner-report-panel .chart-frame-tall {
+    height: 185px;
+}
+
 .owner-credit-panel .workspace-detail-grid {
     margin-top: 0.35rem;
 }
