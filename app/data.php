@@ -26,10 +26,19 @@ $internalApiBaseUrl = normalizeApiBaseUrl(
 
 function fetchApiPayload(string $url): array
 {
+    $headers = [
+        'Accept: application/json',
+    ];
+
+    if (str_starts_with($url, 'http://127.0.0.1:8001/') || str_starts_with($url, 'http://localhost:8001/')) {
+        $headers[] = 'X-Forwarded-Proto: https';
+    }
+
     $context = stream_context_create([
         'http' => [
             'ignore_errors' => true,
             'method' => 'GET',
+            'header' => implode("\r\n", $headers),
             'timeout' => 5,
         ],
     ]);

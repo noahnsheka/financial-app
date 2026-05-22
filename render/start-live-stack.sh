@@ -19,10 +19,12 @@ import urllib.request
 
 url = sys.argv[1]
 deadline = time.time() + 60
+headers = {'X-Forwarded-Proto': 'https'} if url.startswith('http://127.0.0.1:8001/') else {}
 
 while time.time() < deadline:
     try:
-        with urllib.request.urlopen(url, timeout=2) as response:
+        request = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(request, timeout=2) as response:
             if response.status < 500:
                 raise SystemExit(0)
     except Exception:
