@@ -1,7 +1,9 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-	PYTHONUNBUFFERED=1
+	PYTHONUNBUFFERED=1 \
+	LEDGERLIFT_API_BASE_URL=/api \
+	LEDGERLIFT_INTERNAL_API_BASE_URL=http://127.0.0.1:8001/api
 
 WORKDIR /app
 
@@ -16,4 +18,5 @@ COPY . /app
 
 RUN chmod +x /app/render/start-live-stack.sh
 
+# Use the main startup script
 CMD ["/app/render/start-live-stack.sh"]
