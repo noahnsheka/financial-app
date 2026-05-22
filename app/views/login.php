@@ -5,9 +5,9 @@
                 <div>
                     <p class="section-kicker mb-2">Secure entry</p>
                     <h2 class="h4 mb-1">Sign in as an official or business owner</h2>
-                    <p class="text-muted mb-0">Officials and linked business owners see different post-login workspaces, but they enter through the same secure sign-in flow.</p>
+                    <p class="text-muted mb-0">Officials and linked business owners see different post-login workspaces, but they enter through the same live authentication flow.</p>
                 </div>
-                <span class="pill-note pill-note-muted align-self-start">Demo auth enabled</span>
+                <span class="pill-note pill-note-muted align-self-start">Live auth</span>
             </div>
 
             <form class="row g-3" data-login-form>
@@ -17,14 +17,14 @@
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="login_password">Password</label>
-                    <input class="form-control" id="login_password" name="password" type="password" placeholder="GovDemo123!" required>
+                    <input class="form-control" id="login_password" name="password" type="password" placeholder="Enter your password" required>
                 </div>
                 <div class="col-12">
                     <div class="form-status" data-login-message></div>
                 </div>
                 <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
                     <button class="btn btn-warning btn-lg px-4" type="submit" data-login-submit>Sign in</button>
-                    <small class="text-muted">Use the quick-fill accounts on the right if you are testing the login flow.</small>
+                    <small class="text-muted">Use a live or self-created account. Credentials are no longer exposed in the interface.</small>
                 </div>
             </form>
         </article>
@@ -155,26 +155,19 @@
 
     <div class="col-lg-5">
         <article class="panel mb-4">
-            <p class="section-kicker mb-2">Quick fill</p>
-            <h2 class="h4 mb-4">Use the seeded official and owner identities</h2>
-            <div class="registration-feed">
-                <?php foreach ($data['demoAccounts'] as $account): ?>
-                    <div class="feed-item">
-                        <strong class="d-block mb-2"><?php echo e($account['displayName']); ?></strong>
-                        <div class="text-muted small mb-2"><?php echo e($account['role']); ?></div>
-                        <div class="small mb-1"><strong>Username:</strong> <?php echo e($account['username']); ?></div>
-                        <div class="small mb-3"><strong>Password:</strong> <?php echo e($account['password']); ?></div>
-                        <button
-                            class="btn btn-outline-success btn-sm"
-                            type="button"
-                            data-demo-credential
-                            data-username="<?php echo e($account['username']); ?>"
-                            data-password="<?php echo e($account['password']); ?>"
-                        >
-                            Use this account
-                        </button>
-                    </div>
-                <?php endforeach; ?>
+            <p class="section-kicker mb-2">Access guidance</p>
+            <h2 class="h4 mb-4">How sign-in now works</h2>
+            <div class="business-card mb-3">
+                <strong class="d-block mb-2">Protected credentials</strong>
+                <p class="mb-0 text-muted">The app no longer publishes passwords or quick-fill buttons. Authentication runs against the database-backed account store only.</p>
+            </div>
+            <div class="business-card mb-3">
+                <strong class="d-block mb-2">Business owner self-registration</strong>
+                <p class="mb-0 text-muted">Owners can create an account from this page and receive one linked business profile immediately.</p>
+            </div>
+            <div class="business-card">
+                <strong class="d-block mb-2">Official accounts</strong>
+                <p class="mb-0 text-muted">Government, lender, and field accounts should be provisioned by the programme team and authenticated directly against the live backend.</p>
             </div>
         </article>
 
@@ -191,7 +184,7 @@
             </div>
             <div class="business-card mb-3">
                 <strong class="d-block mb-2">Field agent</strong>
-                <p class="mb-0 text-muted">Business onboarding, demo-mode registrations, and follow-up on incomplete profiles.</p>
+                <p class="mb-0 text-muted">Business onboarding, TIN follow-up, and closure of incomplete profiles.</p>
             </div>
             <div class="business-card">
                 <strong class="d-block mb-2">Business owner</strong>

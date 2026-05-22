@@ -1,8 +1,11 @@
 services:
-  - type: static
+  - type: web
     name: ledgerlift-uganda-demo
-    buildCommand: echo "static site ready"
-    staticPublishPath: docs
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: LEDGERLIFT_API_BASE_URL
+        value: https://ledgerlift-uganda-api.onrender.com/api
 
   - type: web
     name: ledgerlift-uganda-api

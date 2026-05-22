@@ -5,7 +5,7 @@
                 <div>
                     <p class="section-kicker mb-2">Role workspace</p>
                     <h2 class="h3 mb-2" data-workspace-title>Checking your current session</h2>
-                    <p class="text-muted mb-0" data-workspace-description>Sign in with one of the seeded demo accounts to unlock a role-based dashboard.</p>
+                    <p class="text-muted mb-0" data-workspace-description>Sign in with a live account to unlock a role-based dashboard.</p>
                 </div>
                 <span class="pill-note pill-note-muted align-self-start" data-auth-session-status>Checking session...</span>
             </div>
@@ -23,7 +23,7 @@
                 <div class="col-md-6">
                     <div class="business-card h-100">
                         <strong class="d-block mb-2">No active session</strong>
-                        <p class="mb-3 text-muted">Open the login page and authenticate with a seeded role account to load your action cards.</p>
+                        <p class="mb-3 text-muted">Open the login page and authenticate with a live role account to load your action cards.</p>
                         <a class="btn btn-outline-success btn-sm" href="?page=login">Go to login</a>
                     </div>
                 </div>
@@ -37,7 +37,7 @@
             <h2 class="h4 mb-4">Signed-in account</h2>
             <div class="auth-profile-card" data-current-user-card>
                 <strong class="d-block mb-2">Not signed in</strong>
-                <p class="mb-3 text-muted">Use a seeded account to populate this workspace with role-aware content.</p>
+                <p class="mb-3 text-muted">Use a live account to populate this workspace with role-aware content.</p>
                 <a class="btn btn-outline-success btn-sm" href="?page=login">Go to login</a>
             </div>
         </article>

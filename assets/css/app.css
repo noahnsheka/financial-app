@@ -765,6 +765,17 @@ h6,
     border-color: rgba(16, 24, 40, 0.1);
 }
 
+.owner-overview-card,
+.owner-edit-panel {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(250, 247, 236, 0.94));
+}
+
+.owner-overview-card .workspace-detail-item,
+.owner-edit-panel .workspace-detail-item {
+    border-color: rgba(16, 24, 40, 0.1);
+}
+
 .owner-document-panel .feed-item {
     border-color: rgba(16, 24, 40, 0.08);
 }
@@ -774,10 +785,27 @@ h6,
     vertical-align: middle;
 }
 
+.owner-stock-panel .table th {
+    white-space: nowrap;
+    font-size: 0.79rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.owner-stock-panel .table td {
+    font-size: 0.94rem;
+}
+
 .owner-stock-panel .form-status,
 .owner-document-panel .form-status,
 .owner-credit-intake-panel .form-status {
     border: 1px solid var(--flag-black-strong);
+}
+
+.owner-chart-frame {
+    border: 1px solid rgba(16, 24, 40, 0.1);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 249, 252, 0.92));
+    padding: 0.8rem;
 }
 
 .owner-report-panel .chart-frame-wide {
@@ -813,6 +841,37 @@ h6,
 .owner-overview-card,
 .owner-edit-panel {
     border-top: 1px solid var(--line);
+}
+
+.owner-form-footer {
+    margin-top: 0.25rem;
+    padding-top: 0.95rem;
+    border-top: 1px solid rgba(16, 24, 40, 0.08);
+}
+
+.owner-form-footer .btn {
+    min-width: 15rem;
+}
+
+.owner-stock-table {
+    margin-top: 1.35rem !important;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(16, 24, 40, 0.08);
+}
+
+.owner-stock-table .table {
+    min-width: 640px;
+}
+
+.owner-report-feed,
+.owner-document-feed {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.owner-report-feed .feed-item,
+.owner-document-feed .feed-item {
+    padding-top: 0.75rem;
 }
 
 .workspace-business-detail {
@@ -860,6 +919,10 @@ h6,
 
 .owner-summary-grid .workspace-detail-item {
     background: rgba(245, 239, 204, 0.42);
+}
+
+.owner-summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
 }
 
 .feed-item {
@@ -1044,6 +1107,27 @@ h6,
     .auth-nav-actions {
         align-items: flex-start !important;
     }
+
+    .owner-form-footer .btn {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .owner-form-footer small {
+        width: 100%;
+    }
+
+    .workspace-detail-grid {
+        grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    }
+
+    .owner-report-panel .chart-frame-wide {
+        height: 188px;
+    }
+
+    .owner-report-panel .chart-frame-tall {
+        height: 168px;
+    }
 }
 
 @media (max-width: 575.98px) {
@@ -1068,6 +1152,47 @@ h6,
     .chart-frame-wide,
     .chart-frame-tall {
         height: 150px;
+    }
+
+    .owner-stock-panel,
+    .owner-report-panel,
+    .owner-document-panel,
+    .owner-credit-intake-panel,
+    .owner-overview-card,
+    .owner-edit-panel,
+    .owner-credit-panel {
+        padding: 1rem;
+    }
+
+    .workspace-detail-grid,
+    .owner-summary-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+
+    .workspace-detail-item {
+        padding: 0.8rem 0.85rem;
+    }
+
+    .owner-stock-table .table {
+        min-width: 560px;
+    }
+
+    .owner-stock-panel .table td,
+    .owner-stock-panel .table th {
+        padding: 0.65rem 0.55rem;
+    }
+
+    .owner-chart-frame {
+        padding: 0.65rem;
+    }
+
+    .owner-report-panel .chart-frame-wide {
+        height: 176px;
+    }
+
+    .owner-report-panel .chart-frame-tall {
+        height: 152px;
     }
 
     .stat-chip strong {

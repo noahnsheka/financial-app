@@ -236,7 +236,6 @@ const configuredApiBaseUrl = (appData.apiBaseUrl || 'http://127.0.0.1:8001/api')
 const localApiBaseUrl = 'http://127.0.0.1:8001/api';
 const apiBaseUrl = isLocalFrontend ? localApiBaseUrl : configuredApiBaseUrl;
 const authStorageKey = 'ledgerlift.auth.session';
-const ownerWorkspaceStorageKey = 'ledgerlift.owner.workspace.data';
 const publicPages = new Set(['dashboard', 'login', 'credit', 'government']);
 const officialRoles = new Set(['government', 'lender', 'field_agent']);
 let ownerWorkspaceCharts = [];
@@ -252,7 +251,7 @@ const roleBlueprints = {
         workspaceDescription: 'Prioritize districts, track TIN-ready businesses, and decide where onboarding and financing support should go next.',
         notes: [
             'Focus on TIN-ready businesses when preparing a government support shortlist.',
-            'Use demo accounts only for showcase activity and keep them out of policy reporting.',
+            'Use only authenticated live records when preparing policy reporting and support shortlists.',
             'Watch districts with low profile scores because they need field support before lender rollout.',
         ],
         actions: [
@@ -266,7 +265,7 @@ const roleBlueprints = {
         notes: [
             'Use strong profile scores as an initial filter before introducing real underwriting logic.',
             'TIN-ready profiles are better candidates for formal loan pipelines.',
-            'Demo accounts are useful for walkthroughs but should not enter real credit committees.',
+            'Exclude high-risk or weakly evidenced profiles until the operating data improves.',
         ],
         actions: [
             { title: 'Inspect credit view', detail: 'Use the credit engine page to explain the scoring logic behind the MVP.', href: '?page=credit', cta: 'Open credit engine' },
@@ -275,9 +274,9 @@ const roleBlueprints = {
     },
     field_agent: {
         workspaceTitle: 'Field agent workspace',
-        workspaceDescription: 'Register new shops quickly, keep demo mode available for showcases, and follow up on incomplete business profiles.',
+        workspaceDescription: 'Register new shops quickly, keep the captured data accurate, and follow up on incomplete business profiles.',
         notes: [
-            'Use demo mode when the business has no working TIN but the team still needs a full product demo.',
+            'TIN is still optional for the MVP, but complete tax and identity details make the record more useful later.',
             'Collect mobile money numbers and revenue bands early because they improve the profile score quickly.',
             'Review recent live registrations daily and close the biggest completeness gaps first.',
         ],
@@ -507,20 +506,12 @@ const buildRelativeIsoDate = (daysAgo = 0) => {
     return date.toISOString().slice(0, 10);
 };
 
-const buildFutureIsoDate = (monthsAhead = 0) => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    date.setMonth(date.getMonth() + monthsAhead);
-    return date.toISOString().slice(0, 10);
+const formatMonthLabel = (value) => {
+    const parsed = new Date(`${String(value || '').trim()}T00:00:00`);
+    return Number.isNaN(parsed.getTime())
+        ? String(value || '').trim()
+        : parsed.toLocaleDateString(undefined, { month: 'short' });
 };
-
-const buildTrailingMonthLabels = () => Array.from({ length: 6 }, (_, index) => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    date.setDate(1);
-    date.setMonth(date.getMonth() - (5 - index));
-    return date.toLocaleDateString(undefined, { month: 'short' });
-});
 
 const getOwnerWorkspaceItems = (business) => {
     const parsedItems = String(business?.stock_focus || '')
@@ -528,163 +519,89 @@ const getOwnerWorkspaceItems = (business) => {
         .map((item) => item.trim())
         .filter(Boolean);
 
-    return parsedItems.length ? parsedItems : ['Fast movers', 'Core groceries', 'Seasonal stock'];
+    return parsedItems.length ? parsedItems : ['core stock'];
 };
 
-const readOwnerWorkspaceStore = () => {
-    try {
-        const raw = window.localStorage.getItem(ownerWorkspaceStorageKey);
-        return raw ? JSON.parse(raw) : {};
-    } catch (error) {
-        return {};
-    }
-};
+const buildOwnerDefaultCreditProfile = (business) => ({
+    requested_amount: '0.00',
+    loan_purpose: `Increase ${getOwnerWorkspaceItems(business)[0].toLowerCase()} stock depth`,
+    repayment_window: '',
+    bookkeeping_score: clampScoreValue(business?.receipt_trust_score || 0),
+    supplier_score: clampScoreValue(business?.consistency_score || 0),
+    collateral_notes: '',
+    registration_status: '',
+    updated_at: '',
+});
 
-const writeOwnerWorkspaceStore = (store) => {
-    try {
-        window.localStorage.setItem(ownerWorkspaceStorageKey, JSON.stringify(store));
-    } catch (error) {
-        // Ignore browser storage errors and keep the workspace usable.
-    }
-};
-
-const buildOwnerSeedMonthlySales = (business) => {
-    const labels = buildTrailingMonthLabels();
-    const revenueBase = Math.max(
-        toNumber(business?.average_monthly_mobile_money) + toNumber(business?.average_monthly_profit),
-        toNumber(business?.inventory_value_estimate),
-        1800000,
-    );
-
-    return labels.map((label, index) => {
-        const multiplier = 0.8 + (index * 0.07);
-        const revenue = Math.round((revenueBase * multiplier) / 1000) * 1000;
-        return {
-            id: `seed-sales-${label.toLowerCase()}`,
-            label,
-            revenue,
-            expenses: Math.round(revenue * 0.68),
-            orders: 84 + (index * 12),
-        };
-    });
-};
-
-const buildOwnerSeedStockEntries = (business) => {
-    const items = getOwnerWorkspaceItems(business);
-    const priceHint = Math.max(
-        Math.round(Math.max(toNumber(business?.average_monthly_profit) / 45, 2500) / 100) * 100,
-        2500,
-    );
-
-    return items.slice(0, 3).map((item, index) => ({
-        id: `seed-stock-${index}`,
-        date: buildRelativeIsoDate(2 - index),
-        item_name: item,
-        category: business?.sector || 'Retail',
-        unit: 'units',
-        on_hand: Math.max(8, 38 - (index * 7)),
-        received: 12 + (index * 4),
-        sold: 7 + (index * 3),
-        reorder_level: 12 + (index * 2),
-        selling_price: priceHint,
-    }));
-};
-
-const buildOwnerSeedDocuments = (business) => [
-    {
-        id: 'seed-doc-licence',
-        name: 'Trading licence',
-        type: 'Compliance',
-        reference: `${String(business?.district || 'BUS').slice(0, 3).toUpperCase()}-2026-114`,
-        due_date: buildFutureIsoDate(1),
-        status: 'Ready',
-    },
-    {
-        id: 'seed-doc-finance',
-        name: 'Mobile money statement',
-        type: 'Finance',
-        reference: 'Last 90 days',
-        due_date: buildFutureIsoDate(0),
-        status: 'Ready',
-    },
-    {
-        id: 'seed-doc-tax',
-        name: 'TIN and tax summary',
-        type: 'Tax',
-        reference: business?.tin_number || 'Pending TIN capture',
-        due_date: '',
-        status: business?.tin_number ? 'Ready' : 'Pending',
-    },
-];
-
-const buildOwnerSeedCreditProfile = (business, monthlySales) => {
-    const averageMonthlyRevenue = averageValue(monthlySales.map((entry) => toNumber(entry.revenue)));
+const normalizeOwnerWorkspaceData = (business) => {
+    const workspace = business?.workspace && typeof business.workspace === 'object'
+        ? business.workspace
+        : {};
+    const defaultCreditProfile = buildOwnerDefaultCreditProfile(business);
+    const stockEntries = Array.isArray(workspace.stock_entries)
+        ? workspace.stock_entries.map((entry) => ({
+            id: String(entry.id || '').trim(),
+            date: String(entry.date || '').trim(),
+            item_name: String(entry.item_name || '').trim(),
+            category: String(entry.category || '').trim(),
+            unit: String(entry.unit || '').trim() || 'units',
+            on_hand: Math.max(0, Math.round(toNumber(entry.on_hand))),
+            received: Math.max(0, Math.round(toNumber(entry.received))),
+            sold: Math.max(0, Math.round(toNumber(entry.sold))),
+            reorder_level: Math.max(0, Math.round(toNumber(entry.reorder_level))),
+            selling_price: toNumber(entry.selling_price),
+        }))
+        : [];
+    const monthlySales = Array.isArray(workspace.monthly_sales)
+        ? workspace.monthly_sales
+            .map((entry) => ({
+                id: String(entry.id || '').trim(),
+                month_start: String(entry.month_start || '').trim(),
+                label: String(entry.label || '').trim() || formatMonthLabel(entry.month_start),
+                revenue: toNumber(entry.revenue),
+                expenses: toNumber(entry.expenses),
+                orders: Math.max(0, Math.round(toNumber(entry.orders))),
+                mobile_money: toNumber(entry.mobile_money),
+                cash_sales: toNumber(entry.cash_sales),
+                supplier_payments: toNumber(entry.supplier_payments),
+                readiness_score: clampScoreValue(entry.readiness_score),
+            }))
+            .sort((left, right) => String(left.month_start || '').localeCompare(String(right.month_start || '')))
+        : [];
+    const documents = Array.isArray(workspace.documents)
+        ? workspace.documents.map((entry) => ({
+            id: String(entry.id || '').trim(),
+            name: String(entry.name || '').trim(),
+            type: String(entry.type || '').trim(),
+            reference: String(entry.reference || '').trim(),
+            due_date: String(entry.due_date || '').trim(),
+            status: String(entry.status || '').trim() || 'Pending',
+        }))
+        : [];
+    const creditDraft = workspace.credit_draft && typeof workspace.credit_draft === 'object'
+        ? workspace.credit_draft
+        : {};
 
     return {
-        requested_amount: Math.max(350000, Math.round((averageMonthlyRevenue * 0.35) / 1000) * 1000),
-        loan_purpose: `Increase ${getOwnerWorkspaceItems(business)[0].toLowerCase()} stock depth`,
-        repayment_window: '6 months',
-        bookkeeping_score: clampScoreValue((business?.receipt_trust_score || 0) || 72),
-        supplier_score: clampScoreValue((business?.consistency_score || 0) || 74),
-        collateral_notes: 'Inventory, receipt trail, and mobile-money record available for review.',
-        registration_status: 'Draft front-end intake',
-    };
-};
-
-const normalizeOwnerWorkspaceData = (value, business) => {
-    const seedMonthlySales = buildOwnerSeedMonthlySales(business);
-    const seed = {
-        stockEntries: buildOwnerSeedStockEntries(business),
-        monthlySales: seedMonthlySales,
-        documents: buildOwnerSeedDocuments(business),
-        creditProfile: buildOwnerSeedCreditProfile(business, seedMonthlySales),
-    };
-
-    return {
-        stockEntries: Array.isArray(value?.stockEntries) && value.stockEntries.length > 0
-            ? value.stockEntries
-            : seed.stockEntries,
-        monthlySales: Array.isArray(value?.monthlySales) && value.monthlySales.length > 0
-            ? value.monthlySales
-            : seed.monthlySales,
-        documents: Array.isArray(value?.documents) && value.documents.length > 0
-            ? value.documents
-            : seed.documents,
+        stockEntries: stockEntries.sort((left, right) => String(right.date || '').localeCompare(String(left.date || ''))),
+        monthlySales,
+        documents,
         creditProfile: {
-            ...seed.creditProfile,
-            ...(value?.creditProfile || {}),
+            ...defaultCreditProfile,
+            ...creditDraft,
+            requested_amount: String(creditDraft.requested_amount || defaultCreditProfile.requested_amount),
+            loan_purpose: String(creditDraft.loan_purpose || defaultCreditProfile.loan_purpose),
+            repayment_window: String(creditDraft.repayment_window || defaultCreditProfile.repayment_window),
+            bookkeeping_score: clampScoreValue(creditDraft.bookkeeping_score ?? defaultCreditProfile.bookkeeping_score),
+            supplier_score: clampScoreValue(creditDraft.supplier_score ?? defaultCreditProfile.supplier_score),
+            collateral_notes: String(creditDraft.collateral_notes || defaultCreditProfile.collateral_notes),
+            registration_status: String(creditDraft.registration_status || defaultCreditProfile.registration_status),
+            updated_at: String(creditDraft.updated_at || defaultCreditProfile.updated_at),
         },
     };
 };
 
-const getOwnerWorkspaceData = (business) => {
-    if (!business?.id) {
-        return normalizeOwnerWorkspaceData({}, business || {});
-    }
-
-    const store = readOwnerWorkspaceStore();
-    const normalized = normalizeOwnerWorkspaceData(store[business.id], business);
-    store[business.id] = normalized;
-    writeOwnerWorkspaceStore(store);
-    return normalized;
-};
-
-const updateOwnerWorkspaceData = (business, updater) => {
-    if (!business?.id) {
-        return null;
-    }
-
-    const store = readOwnerWorkspaceStore();
-    const current = normalizeOwnerWorkspaceData(store[business.id], business);
-    const nextValue = typeof updater === 'function'
-        ? updater(current)
-        : { ...current, ...updater };
-    const normalized = normalizeOwnerWorkspaceData(nextValue, business);
-
-    store[business.id] = normalized;
-    writeOwnerWorkspaceStore(store);
-    return normalized;
-};
+const getOwnerWorkspaceData = (business) => normalizeOwnerWorkspaceData(business || {});
 
 const getLatestOwnerStockEntries = (stockEntries) => {
     const seenItems = new Set();
@@ -947,7 +864,55 @@ const renderWorkspaceMetricTiles = (metrics) => metrics
     `)
     .join('');
 
-const getOwnerBusiness = (user, businesses) => user?.business || businesses[0] || null;
+const getOwnerBusiness = (user, businesses) => {
+    const businessId = user?.business?.id;
+    const liveBusiness = Array.isArray(businesses)
+        ? businesses.find((business) => business.id === businessId) || businesses[0] || null
+        : null;
+
+    if (!liveBusiness) {
+        return user?.business || null;
+    }
+
+    return {
+        ...(user?.business || {}),
+        ...liveBusiness,
+        workspace: liveBusiness.workspace || user?.business?.workspace || {},
+    };
+};
+
+const upsertBusiness = (businesses, nextBusiness) => {
+    if (!nextBusiness) {
+        return Array.isArray(businesses) ? businesses : [];
+    }
+
+    const currentBusinesses = Array.isArray(businesses) ? businesses : [];
+    const hasMatch = currentBusinesses.some((business) => business.id === nextBusiness.id);
+
+    return hasMatch
+        ? currentBusinesses.map((business) => (business.id === nextBusiness.id ? nextBusiness : business))
+        : [nextBusiness, ...currentBusinesses];
+};
+
+const rerenderOwnerWorkspace = async (session, businesses, nextBusiness) => {
+    const refreshedBusinesses = await loadBusinesses();
+    const nextBusinesses = refreshedBusinesses.length > 0
+        ? refreshedBusinesses
+        : upsertBusiness(businesses, nextBusiness);
+    const resolvedBusiness = nextBusinesses.find((business) => business.id === nextBusiness?.id)
+        || nextBusiness
+        || getOwnerBusiness(session?.user, nextBusinesses);
+    const nextSession = {
+        user: {
+            ...session.user,
+            business: resolvedBusiness || null,
+        },
+    };
+
+    storeSession(nextSession.user);
+    renderWorkspace(nextSession, nextBusinesses);
+    return nextSession;
+};
 
 const buildOwnerGuidance = (business) => {
     const guidance = [];
@@ -1261,56 +1226,55 @@ const bindOwnerStockForm = (session, businesses, business) => {
     }
 
     stockForm.dataset.bound = 'true';
-    stockForm.addEventListener('submit', (event) => {
+    stockForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const formData = new FormData(stockForm);
         const itemName = String(formData.get('item_name') || '').trim();
+        const submitButton = stockForm.querySelector('button[type="submit"]');
 
         if (!itemName) {
             showOwnerStockMessage('Add the stock item name before saving the entry.', 'error');
             return;
         }
 
-        const sold = Math.max(0, Math.round(toNumber(formData.get('sold'))));
-        const sellingPrice = Math.max(0, toNumber(formData.get('selling_price')));
+        const payload = {
+            date: String(formData.get('date') || buildRelativeIsoDate(0)).trim(),
+            item_name: itemName,
+            category: String(formData.get('category') || '').trim() || business.sector || 'Retail',
+            unit: String(formData.get('unit') || '').trim() || 'units',
+            on_hand: Math.max(0, Math.round(toNumber(formData.get('on_hand')))),
+            received: Math.max(0, Math.round(toNumber(formData.get('received')))),
+            sold: Math.max(0, Math.round(toNumber(formData.get('sold')))),
+            reorder_level: Math.max(0, Math.round(toNumber(formData.get('reorder_level')))),
+            selling_price: Math.max(0, toNumber(formData.get('selling_price'))),
+        };
 
-        updateOwnerWorkspaceData(business, (current) => {
-            const monthlySales = [...(current.monthlySales || [])];
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Saving stock entry...';
+        }
 
-            if (monthlySales.length > 0) {
-                const lastIndex = monthlySales.length - 1;
-                const currentMonth = monthlySales[lastIndex];
-                monthlySales[lastIndex] = {
-                    ...currentMonth,
-                    revenue: Math.round(toNumber(currentMonth.revenue) + (sold * sellingPrice)),
-                    orders: Math.round(toNumber(currentMonth.orders) + sold),
-                };
+        try {
+            const result = await fetchJson(`/businesses/${business.id}/stock-entries/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+
+            await rerenderOwnerWorkspace(session, businesses, result.business);
+            showOwnerStockMessage(result.message || 'Stock entry saved. The charts and monthly report were refreshed.', 'success');
+        } catch (error) {
+            showOwnerStockMessage(error.message || 'Unable to save the stock entry right now.', 'error');
+        } finally {
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Save stock entry';
             }
-
-            return {
-                ...current,
-                stockEntries: [
-                    {
-                        id: `stock-${Date.now()}`,
-                        date: String(formData.get('date') || buildRelativeIsoDate(0)).trim(),
-                        item_name: itemName,
-                        category: String(formData.get('category') || '').trim() || business.sector || 'Retail',
-                        unit: String(formData.get('unit') || '').trim() || 'units',
-                        on_hand: Math.max(0, Math.round(toNumber(formData.get('on_hand')))),
-                        received: Math.max(0, Math.round(toNumber(formData.get('received')))),
-                        sold,
-                        reorder_level: Math.max(0, Math.round(toNumber(formData.get('reorder_level')))),
-                        selling_price: sellingPrice,
-                    },
-                    ...(current.stockEntries || []),
-                ].slice(0, 24),
-                monthlySales,
-            };
-        });
-
-        renderWorkspace(session, businesses);
-        showOwnerStockMessage('Stock entry saved. The charts and monthly report were refreshed.', 'success');
+        }
     });
 };
 
@@ -1322,34 +1286,51 @@ const bindOwnerDocumentForm = (session, businesses, business) => {
     }
 
     documentForm.dataset.bound = 'true';
-    documentForm.addEventListener('submit', (event) => {
+    documentForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const formData = new FormData(documentForm);
         const name = String(formData.get('name') || '').trim();
+        const submitButton = documentForm.querySelector('button[type="submit"]');
 
         if (!name) {
             showOwnerDocumentMessage('Document name is required.', 'error');
             return;
         }
 
-        updateOwnerWorkspaceData(business, (current) => ({
-            ...current,
-            documents: [
-                {
-                    id: `doc-${Date.now()}`,
-                    name,
-                    type: String(formData.get('type') || '').trim() || 'General',
-                    reference: String(formData.get('reference') || '').trim(),
-                    due_date: String(formData.get('due_date') || '').trim(),
-                    status: String(formData.get('status') || '').trim() || 'Pending',
-                },
-                ...(current.documents || []),
-            ].slice(0, 10),
-        }));
+        const payload = {
+            name,
+            type: String(formData.get('type') || '').trim() || 'General',
+            reference: String(formData.get('reference') || '').trim(),
+            due_date: String(formData.get('due_date') || '').trim(),
+            status: String(formData.get('status') || '').trim() || 'Pending',
+        };
 
-        renderWorkspace(session, businesses);
-        showOwnerDocumentMessage('Document tracker updated for this business.', 'success');
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Saving document...';
+        }
+
+        try {
+            const result = await fetchJson(`/businesses/${business.id}/documents/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+
+            await rerenderOwnerWorkspace(session, businesses, result.business);
+            showOwnerDocumentMessage(result.message || 'Document tracker updated for this business.', 'success');
+        } catch (error) {
+            showOwnerDocumentMessage(error.message || 'Unable to save the document right now.', 'error');
+        } finally {
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Add document reference';
+            }
+        }
     });
 };
 
@@ -1361,33 +1342,52 @@ const bindOwnerCreditIntakeForm = (session, businesses, business) => {
     }
 
     creditIntakeForm.dataset.bound = 'true';
-    creditIntakeForm.addEventListener('submit', (event) => {
+    creditIntakeForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const formData = new FormData(creditIntakeForm);
         const requestedAmount = Math.max(0, Math.round(toNumber(formData.get('requested_amount'))));
+        const submitButton = creditIntakeForm.querySelector('button[type="submit"]');
 
         if (requestedAmount <= 0) {
             showOwnerCreditIntakeMessage('Requested amount must be greater than zero.', 'error');
             return;
         }
 
-        updateOwnerWorkspaceData(business, (current) => ({
-            ...current,
-            creditProfile: {
-                ...(current.creditProfile || {}),
-                requested_amount: requestedAmount,
-                loan_purpose: String(formData.get('loan_purpose') || '').trim(),
-                repayment_window: String(formData.get('repayment_window') || '').trim() || '6 months',
-                bookkeeping_score: clampScoreValue(formData.get('bookkeeping_score')),
-                supplier_score: clampScoreValue(formData.get('supplier_score')),
-                collateral_notes: String(formData.get('collateral_notes') || '').trim(),
-                registration_status: 'Front-end intake updated',
-            },
-        }));
+        const payload = {
+            requested_amount: requestedAmount,
+            loan_purpose: String(formData.get('loan_purpose') || '').trim(),
+            repayment_window: String(formData.get('repayment_window') || '').trim() || '6 months',
+            bookkeeping_score: clampScoreValue(formData.get('bookkeeping_score')),
+            supplier_score: clampScoreValue(formData.get('supplier_score')),
+            collateral_notes: String(formData.get('collateral_notes') || '').trim(),
+        };
 
-        renderWorkspace(session, businesses);
-        showOwnerCreditIntakeMessage('Front-end credit intake saved and the preview score was recalculated.', 'success');
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Saving credit draft...';
+        }
+
+        try {
+            const result = await fetchJson(`/businesses/${business.id}/credit-draft/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+
+            await rerenderOwnerWorkspace(session, businesses, result.business);
+            showOwnerCreditIntakeMessage(result.message || 'Credit draft saved and the preview score was recalculated.', 'success');
+        } catch (error) {
+            showOwnerCreditIntakeMessage(error.message || 'Unable to save the credit draft right now.', 'error');
+        } finally {
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Save credit intake';
+            }
+        }
     });
 };
 
@@ -1655,8 +1655,8 @@ const syncDemoNote = () => {
     }
 
     demoNote.textContent = demoToggle.checked
-        ? 'Demo mode is active. The business can be registered without a TIN and will be marked as a showcase account.'
-        : 'Demo accounts can be created without a TIN so the team can showcase onboarding and credit flows before the tax integration is live.';
+        ? 'This registration will proceed without a TIN and will remain outside future tax-readiness checks until the identifier is added.'
+        : 'TIN remains optional for the MVP, but records without a TIN will stay pending for future tax verification.';
 };
 
 const renderRecentRegistrations = (results) => {
@@ -1983,13 +1983,13 @@ const renderWorkspace = (session, businesses) => {
         }
 
         if (workspaceDescription) {
-            workspaceDescription.textContent = 'Use one of the seeded demo accounts to unlock role-specific tasks, live business metrics, and the correct dashboard links.';
+            workspaceDescription.textContent = 'Sign in with a live account to unlock role-specific tasks, live business metrics, and the correct dashboard links.';
         }
 
         if (currentUserCard) {
             currentUserCard.innerHTML = `
                 <strong class="d-block mb-2">Not signed in</strong>
-                <p class="mb-3 text-muted">Authenticate with a seeded account to view a role-specific workspace.</p>
+                <p class="mb-3 text-muted">Authenticate with a live account to view a role-specific workspace.</p>
                 <a class="btn btn-outline-success btn-sm" href="?page=login">Go to login</a>
             `;
         }
@@ -2005,8 +2005,10 @@ const renderWorkspace = (session, businesses) => {
     const isOfficial = officialRoles.has(user.role);
     const totalBusinesses = businesses.length;
     const tinReadyCount = businesses.filter((business) => business.tax_lookup_status === 'ready_for_lookup').length;
-    const demoCount = businesses.filter((business) => business.is_demo_account).length;
     const strongProfiles = businesses.filter((business) => (business.profile_score || 0) >= 75).length;
+    const creditReadyCount = businesses.filter((business) => business.is_credit_ready).length;
+    const ownerLinkedCount = businesses.filter((business) => Boolean(business.account_username)).length;
+    const highRiskCount = businesses.filter((business) => business.fraud_risk_level === 'high').length;
     const averageScore = totalBusinesses
         ? Math.round(businesses.reduce((sum, business) => sum + (business.profile_score || 0), 0) / totalBusinesses)
         : 0;
@@ -2015,19 +2017,19 @@ const renderWorkspace = (session, businesses) => {
         government: [
             { label: 'Registered businesses', value: String(totalBusinesses), detail: 'All live registrations currently visible.' },
             { label: 'TIN-ready businesses', value: String(tinReadyCount), detail: 'Profiles ready for future URA lookup.' },
-            { label: 'Demo accounts', value: String(demoCount), detail: 'Showcase registrations kept separate from live activity.' },
+            { label: 'Credit-ready businesses', value: String(creditReadyCount), detail: 'Profiles already strong enough for lender-facing follow-up.' },
             { label: 'Average profile score', value: `${averageScore}/100`, detail: 'Completeness level across the current registry.' },
         ],
         lender: [
             { label: 'Strong profiles', value: String(strongProfiles), detail: 'Businesses above the current readiness threshold.' },
-            { label: 'TIN-ready businesses', value: String(tinReadyCount), detail: 'Best candidates for formal credit pilots.' },
+            { label: 'Credit-ready businesses', value: String(creditReadyCount), detail: 'Best candidates for formal credit pilots.' },
             { label: 'Average profile score', value: `${averageScore}/100`, detail: 'Use this as a quick registry quality signal.' },
-            { label: 'Live businesses', value: String(totalBusinesses - demoCount), detail: 'Records that are not marked as demo-only.' },
+            { label: 'High-risk flagged', value: String(highRiskCount), detail: 'Records that need stronger evidence before lender review.' },
         ],
         field_agent: [
             { label: 'Businesses onboarded', value: String(totalBusinesses), detail: 'Current businesses captured in the registry.' },
-            { label: 'Profiles missing TIN', value: String(totalBusinesses - tinReadyCount - demoCount), detail: 'Follow up when formalization is appropriate.' },
-            { label: 'Demo registrations', value: String(demoCount), detail: 'Useful for product demos before tax verification goes live.' },
+            { label: 'Profiles missing TIN', value: String(Math.max(totalBusinesses - tinReadyCount, 0)), detail: 'Follow up when formalization is appropriate.' },
+            { label: 'Owner-linked profiles', value: String(ownerLinkedCount), detail: 'Business records already attached to a live owner account.' },
             { label: 'Average profile score', value: `${averageScore}/100`, detail: 'Completeness level of the captured business records.' },
         ],
     };
@@ -2240,12 +2242,12 @@ const renderWorkspace = (session, businesses) => {
                             <div class="col-12">
                                 <div class="form-status" data-owner-stock-message></div>
                             </div>
-                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center owner-form-footer">
                                 <button class="btn btn-warning btn-lg px-4" type="submit">Save stock entry</button>
-                                <small class="text-muted">This tracker is front-end only for now, but the charts update immediately after each save.</small>
+                                <small class="text-muted">This saves directly to the database-backed owner workspace and refreshes the charts immediately.</small>
                             </div>
                         </form>
-                        <div class="table-responsive mt-4">
+                        <div class="table-responsive mt-4 owner-stock-table">
                             <table class="table align-middle mb-0">
                                 <thead>
                                     <tr>
@@ -2258,22 +2260,28 @@ const renderWorkspace = (session, businesses) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${(ownerData.stockEntries || [])
-                                        .slice(0, 6)
-                                        .map((entry) => `
+                                    ${(ownerData.stockEntries || []).length > 0
+                                        ? (ownerData.stockEntries || [])
+                                            .slice(0, 6)
+                                            .map((entry) => `
+                                                <tr>
+                                                    <td>
+                                                        <strong class="d-block">${escapeMarkup(entry.item_name || 'Unnamed item')}</strong>
+                                                        <span class="text-muted small">${escapeMarkup(entry.category || 'Retail')} · ${escapeMarkup(entry.unit || 'units')}</span>
+                                                    </td>
+                                                    <td>${formatWorkspaceDate(entry.date)}</td>
+                                                    <td>${Math.round(toNumber(entry.on_hand))}</td>
+                                                    <td>${Math.round(toNumber(entry.sold))}</td>
+                                                    <td>${Math.round(toNumber(entry.reorder_level))}</td>
+                                                    <td><span class="pill-note ${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'pill-note-danger' : 'pill-note-success'}">${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'Reorder soon' : 'Healthy'}</span></td>
+                                                </tr>
+                                            `)
+                                            .join('')
+                                        : `
                                             <tr>
-                                                <td>
-                                                    <strong class="d-block">${escapeMarkup(entry.item_name || 'Unnamed item')}</strong>
-                                                    <span class="text-muted small">${escapeMarkup(entry.category || 'Retail')} · ${escapeMarkup(entry.unit || 'units')}</span>
-                                                </td>
-                                                <td>${formatWorkspaceDate(entry.date)}</td>
-                                                <td>${Math.round(toNumber(entry.on_hand))}</td>
-                                                <td>${Math.round(toNumber(entry.sold))}</td>
-                                                <td>${Math.round(toNumber(entry.reorder_level))}</td>
-                                                <td><span class="pill-note ${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'pill-note-danger' : 'pill-note-success'}">${toNumber(entry.on_hand) <= toNumber(entry.reorder_level) ? 'Reorder soon' : 'Healthy'}</span></td>
+                                                <td colspan="6" class="text-muted">No stock entries saved yet. Add the first daily stock update to start the live charts.</td>
                                             </tr>
-                                        `)
-                                        .join('')}
+                                        `}
                                 </tbody>
                             </table>
                         </div>
@@ -2287,12 +2295,12 @@ const renderWorkspace = (session, businesses) => {
                                 <strong class="d-block mb-2">Read business movement as you record it</strong>
                                 <p class="text-muted mb-0">Stock levels and sales trend are refreshed from the same owner workspace data.</p>
                             </div>
-                            <span class="pill-note pill-note-muted align-self-start">Front-end analytics</span>
+                            <span class="pill-note pill-note-muted align-self-start">Database-backed analytics</span>
                         </div>
-                        <div class="chart-frame chart-frame-wide mb-4">
+                        <div class="chart-frame chart-frame-wide mb-4 owner-chart-frame">
                             <canvas id="ownerStockPositionChart"></canvas>
                         </div>
-                        <div class="chart-frame chart-frame-tall mb-4">
+                        <div class="chart-frame chart-frame-tall mb-4 owner-chart-frame">
                             <canvas id="ownerSalesTrendChart"></canvas>
                         </div>
                         <div class="workspace-detail-grid">
@@ -2303,7 +2311,7 @@ const renderWorkspace = (session, businesses) => {
                             <div class="workspace-detail-item"><span>Best month</span><strong>${escapeMarkup(analytics.bestMonth.label)} · ${formatCurrencyUGX(analytics.bestMonth.revenue)}</strong></div>
                             <div class="workspace-detail-item"><span>Momentum</span><strong>${formatSignedCurrencyUGX(analytics.salesMomentum)}</strong></div>
                         </div>
-                        <div class="registration-feed mt-4">
+                        <div class="registration-feed mt-4 owner-report-feed">
                             <div class="feed-item"><p class="mb-0 text-muted">This month the workspace has tracked ${Math.round(analytics.weeklyUnitsSold)} units sold and ${analytics.lowStockCount} stock lines below the reorder threshold.</p></div>
                             <div class="feed-item"><p class="mb-0 text-muted">Use the latest month graph before lender conversations so the business story stays current.</p></div>
                         </div>
@@ -2317,7 +2325,7 @@ const renderWorkspace = (session, businesses) => {
                                 <strong class="d-block mb-2">Track the files needed for compliance and credit</strong>
                                 <p class="text-muted mb-0">Add references for licences, statements, and business papers so the owner pack feels complete.</p>
                             </div>
-                            <span class="pill-note pill-note-muted align-self-start">Front-end tracker</span>
+                            <span class="pill-note pill-note-muted align-self-start">Database-backed tracker</span>
                         </div>
                         <form class="row g-3" data-owner-document-form data-business-id="${business.id}">
                             <div class="col-md-6">
@@ -2347,25 +2355,27 @@ const renderWorkspace = (session, businesses) => {
                             <div class="col-12">
                                 <div class="form-status" data-owner-document-message></div>
                             </div>
-                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center owner-form-footer">
                                 <button class="btn btn-outline-success btn-lg px-4" type="submit">Add document reference</button>
                                 <small class="text-muted">This stores document metadata only. File uploads can be added when the backend is ready.</small>
                             </div>
                         </form>
-                        <div class="registration-feed mt-4">
-                            ${(ownerData.documents || [])
-                                .slice(0, 5)
-                                .map((document) => `
-                                    <div class="feed-item">
-                                        <div class="d-flex justify-content-between gap-3 mb-2">
-                                            <strong>${escapeMarkup(document.name || 'Untitled document')}</strong>
-                                            <span class="pill-note ${['ready', 'submitted', 'verified', 'active'].includes(String(document.status || '').toLowerCase()) ? 'pill-note-success' : 'pill-note-muted'}">${escapeMarkup(document.status || 'Pending')}</span>
+                        <div class="registration-feed mt-4 owner-document-feed">
+                            ${(ownerData.documents || []).length > 0
+                                ? (ownerData.documents || [])
+                                    .slice(0, 5)
+                                    .map((document) => `
+                                        <div class="feed-item">
+                                            <div class="d-flex justify-content-between gap-3 mb-2">
+                                                <strong>${escapeMarkup(document.name || 'Untitled document')}</strong>
+                                                <span class="pill-note ${['ready', 'submitted', 'verified', 'active'].includes(String(document.status || '').toLowerCase()) ? 'pill-note-success' : 'pill-note-muted'}">${escapeMarkup(document.status || 'Pending')}</span>
+                                            </div>
+                                            <div class="text-muted small mb-1">${escapeMarkup(document.type || 'General')} · ${escapeMarkup(document.reference || 'No reference yet')}</div>
+                                            <div class="text-muted small">${document.due_date ? `Due ${formatWorkspaceDate(document.due_date)}` : 'No due date recorded'}</div>
                                         </div>
-                                        <div class="text-muted small mb-1">${escapeMarkup(document.type || 'General')} · ${escapeMarkup(document.reference || 'No reference yet')}</div>
-                                        <div class="text-muted small">${document.due_date ? `Due ${formatWorkspaceDate(document.due_date)}` : 'No due date recorded'}</div>
-                                    </div>
-                                `)
-                                .join('')}
+                                    `)
+                                    .join('')
+                                : '<div class="feed-item"><p class="mb-0 text-muted">No document references saved yet. Add the first compliance or finance record for this business.</p></div>'}
                         </div>
                     </article>
                 </div>
@@ -2374,8 +2384,8 @@ const renderWorkspace = (session, businesses) => {
                         <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
                             <div>
                                 <p class="section-kicker mb-2">Credit score registration</p>
-                                <strong class="d-block mb-2">Capture a front-end lender intake</strong>
-                                <p class="text-muted mb-0">This is a front-end only pre-check for now. It gives the owner a working score pack before backend underwriting arrives.</p>
+                                <strong class="d-block mb-2">Capture a lender intake draft</strong>
+                                <p class="text-muted mb-0">This draft is saved with the business workspace so the same credit pack appears on the next sign-in.</p>
                             </div>
                             <span class="pill-note pill-note-success align-self-start">${creditPreview.score}/100 preview</span>
                         </div>
@@ -2413,9 +2423,9 @@ const renderWorkspace = (session, businesses) => {
                             <div class="col-12">
                                 <div class="form-status" data-owner-credit-intake-message></div>
                             </div>
-                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center owner-form-footer">
                                 <button class="btn btn-warning btn-lg px-4" type="submit">Save credit intake</button>
-                                <small class="text-muted">Saved only in this browser for now. Backend scoring can be wired into the same panel later.</small>
+                                <small class="text-muted">Saved to the business workspace and recalculated from the latest live stock, sales, and document data.</small>
                             </div>
                         </form>
                     </article>
@@ -2502,7 +2512,7 @@ const renderWorkspace = (session, businesses) => {
                             <div class="col-12">
                                 <div class="form-status" data-owner-business-message></div>
                             </div>
-                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
+                            <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center owner-form-footer">
                                 <button class="btn btn-warning btn-lg px-4" type="submit" data-owner-business-submit>Save adjustments</button>
                                 <small class="text-muted">These changes stay attached to your business profile after logout and appear again the next time you sign in.</small>
                             </div>

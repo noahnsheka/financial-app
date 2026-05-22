@@ -261,6 +261,62 @@ class LedgerIntegrityEndpointTests(TestCase):
 
 
 @override_settings(LEDGER_CHAIN_SECRET='test-ledger-secret')
+class PlatformBootstrapTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_bootstrap_aggregates_database_backed_platform_data(self):
+        create_business(
+            workspace_payload={
+                'stock_entries': [
+                    {
+                        'id': 'stock-001',
+                        'date': '2026-05-21',
+                        'item_name': 'Sugar',
+                        'category': 'Retail',
+                        'unit': 'bags',
+                        'on_hand': 2,
+                        'received': 0,
+                        'sold': 4,
+                        'reorder_level': 6,
+                        'selling_price': '3500.00',
+                    }
+                ],
+                'monthly_sales': [
+                    {
+                        'id': 'month-001',
+                        'month_start': '2026-05-01',
+                        'label': 'May',
+                        'revenue': '420000.00',
+                        'expenses': '260000.00',
+                        'orders': 48,
+                        'mobile_money': '280000.00',
+                        'cash_sales': '140000.00',
+                        'supplier_payments': '210000.00',
+                        'readiness_score': 74,
+                    }
+                ],
+                'documents': [],
+                'credit_draft': {},
+            }
+        )
+
+        response = self.client.get(reverse('platform_bootstrap'))
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.assertEqual('1', payload['metrics'][0]['value'])
+        self.assertEqual(['May'], payload['collections']['labels'])
+        self.assertEqual([0.3], payload['collections']['mobileMoney'])
+        self.assertEqual([74], payload['scoreTrend']['values'])
+        self.assertEqual('LedgerLift Foods', payload['stockAlerts'][0]['business'])
+        self.assertIn('districts', payload['registrationForm'])
+        self.assertIn('scoreBreakdown', payload)
+        self.assertIn('loanPrograms', payload)
+
+
+@override_settings(LEDGER_CHAIN_SECRET='test-ledger-secret')
 class BusinessOwnerAccessTests(TestCase):
     def setUp(self):
         self.client = Client()
@@ -318,6 +374,20 @@ class BusinessOwnerAccessTests(TestCase):
         self.assertEqual(1, payload['count'])
         self.assertEqual(self.owner_business.id, payload['results'][0]['id'])
 
+    def test_owner_business_list_includes_workspace_payload(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.get(reverse('business_collection'))
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.assertIn('workspace', payload['results'][0])
+        self.assertIn('stock_entries', payload['results'][0]['workspace'])
+        self.assertIn('monthly_sales', payload['results'][0]['workspace'])
+        self.assertIn('documents', payload['results'][0]['workspace'])
+        self.assertIn('credit_draft', payload['results'][0]['workspace'])
+
     def test_owner_can_patch_assigned_business(self):
         self.client.force_login(self.owner_user)
 
@@ -374,3 +444,94 @@ class BusinessOwnerAccessTests(TestCase):
         self.assertEqual(BusinessRegistration.NINVerificationStatus.MANUAL_REVIEW, self.owner_business.nin_verification_status)
         self.assertEqual(BusinessRegistration.CreditRegistrationStatus.SUBMITTED, self.owner_business.credit_registration_status)
         self.assertTrue(payload['business']['credit_registration_reference'])
+
+    def test_owner_can_add_stock_entry_to_workspace(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.post(
+            reverse('business_stock_entries', args=[self.owner_business.id]),
+            data=json.dumps(
+                {
+                    'date': '2026-05-21',
+                    'item_name': 'Soap',
+                    'category': 'Retail',
+                    'unit': 'bars',
+                    'on_hand': 12,
+                    'received': 5,
+                    'sold': 4,
+                    'reorder_level': 6,
+                    'selling_price': '5000.00',
+                }
+            ),
+            content_type='application/json',
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.owner_business.refresh_from_db()
+        workspace = self.owner_business.normalized_workspace_payload
+
+        self.assertEqual('Stock entry saved.', payload['message'])
+        self.assertEqual('Soap', workspace['stock_entries'][0]['item_name'])
+        self.assertEqual(1, len(workspace['monthly_sales']))
+        self.assertEqual(4, workspace['monthly_sales'][0]['orders'])
+        self.assertEqual('Soap', payload['business']['workspace']['stock_entries'][0]['item_name'])
+
+    def test_owner_can_add_document_to_workspace(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.post(
+            reverse('business_documents', args=[self.owner_business.id]),
+            data=json.dumps(
+                {
+                    'name': 'Trading licence',
+                    'type': 'Compliance',
+                    'reference': 'LIC-2026-22',
+                    'due_date': '2026-06-30',
+                    'status': 'Ready',
+                }
+            ),
+            content_type='application/json',
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.owner_business.refresh_from_db()
+        workspace = self.owner_business.normalized_workspace_payload
+
+        self.assertEqual('Document saved.', payload['message'])
+        self.assertEqual('Trading licence', workspace['documents'][0]['name'])
+        self.assertEqual('Ready', workspace['documents'][0]['status'])
+        self.assertEqual('Trading licence', payload['business']['workspace']['documents'][0]['name'])
+
+    def test_owner_can_update_credit_draft(self):
+        self.client.force_login(self.owner_user)
+
+        response = self.client.patch(
+            reverse('business_credit_draft', args=[self.owner_business.id]),
+            data=json.dumps(
+                {
+                    'requested_amount': '1500000.00',
+                    'loan_purpose': 'Increase household stock depth',
+                    'repayment_window': '6 months',
+                    'bookkeeping_score': 82,
+                    'supplier_score': 77,
+                    'collateral_notes': 'Inventory and mobile money history available.',
+                }
+            ),
+            content_type='application/json',
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+
+        self.owner_business.refresh_from_db()
+        workspace = self.owner_business.normalized_workspace_payload
+
+        self.assertEqual('Credit draft updated.', payload['message'])
+        self.assertEqual('1500000.00', workspace['credit_draft']['requested_amount'])
+        self.assertEqual('Database-backed draft', workspace['credit_draft']['registration_status'])
+        self.assertEqual(82, workspace['credit_draft']['bookkeeping_score'])
+        self.assertEqual('Increase household stock depth', payload['business']['workspace']['credit_draft']['loan_purpose'])

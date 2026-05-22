@@ -1,307 +1,64 @@
 <?php
 declare(strict_types=1);
 
+$apiBaseUrl = getenv('LEDGERLIFT_API_BASE_URL') ?: 'http://127.0.0.1:8001/api';
+
+function fetchApiPayload(string $url): array
+{
+    $context = stream_context_create([
+        'http' => [
+            'ignore_errors' => true,
+            'method' => 'GET',
+            'timeout' => 5,
+        ],
+    ]);
+
+    $raw = @file_get_contents($url, false, $context);
+    if ($raw === false || $raw === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+$bootstrap = fetchApiPayload(rtrim($apiBaseUrl, '/') . '/platform/bootstrap/');
+
 return [
     'appName' => 'LedgerLift Uganda',
     'tagline' => 'Credit-ready records for informal businesses',
-    'apiBaseUrl' => getenv('LEDGERLIFT_API_BASE_URL') ?: 'http://localhost:8001/api',
-    'registrationForm' => [
-        'districts' => ['Kampala', 'Wakiso', 'Mukono', 'Jinja', 'Mbarara', 'Gulu', 'Mbale'],
-        'sectors' => ['Groceries', 'Beverages', 'Household goods', 'Pharmacy', 'Fresh produce', 'Airtime and utilities', 'Mixed retail'],
-        'revenueBands' => ['Below UGX 1M', 'UGX 1M - 3M', 'UGX 3M - 6M', 'UGX 6M - 10M', 'Above UGX 10M'],
+    'apiBaseUrl' => $apiBaseUrl,
+    'registrationForm' => $bootstrap['registrationForm'] ?? [
+        'districts' => [],
+        'sectors' => [],
+        'revenueBands' => [],
     ],
-    'demoAccounts' => [
-        [
-            'displayName' => 'NITA Pilot Officer',
-            'username' => 'gov.officer',
-            'password' => 'GovDemo123!',
-            'role' => 'Government officer',
-            'note' => 'Use this account for policy and oversight walkthroughs.',
-        ],
-        [
-            'displayName' => 'Microfinance Partner',
-            'username' => 'lender.partner',
-            'password' => 'LenderDemo123!',
-            'role' => 'Lender',
-            'note' => 'Use this account for first-loan and credit-readiness demos.',
-        ],
-        [
-            'displayName' => 'Field Agent Kampala',
-            'username' => 'field.agent',
-            'password' => 'FieldDemo123!',
-            'role' => 'Field agent',
-            'note' => 'Use this account to onboard shops without a live TIN in showcase mode.',
-        ],
-        [
-            'displayName' => 'Paul Ssenfuka',
-            'username' => 'paul.owner',
-            'password' => 'OwnerDemo123!',
-            'role' => 'Business owner',
-            'note' => 'Use this account to review one linked business, monitor profile health, and save owner adjustments.',
-        ],
+    'demoAccounts' => [],
+    'heroStats' => $bootstrap['heroStats'] ?? [],
+    'metrics' => $bootstrap['metrics'] ?? [],
+    'collections' => $bootstrap['collections'] ?? [
+        'labels' => [],
+        'mobileMoney' => [],
+        'cash' => [],
+        'supplierPayments' => [],
     ],
-    'heroStats' => [
-        [
-            'label' => 'Districts in pilot',
-            'value' => '12',
-        ],
-        [
-            'label' => 'Daily mobile money sync',
-            'value' => '85%',
-        ],
-        [
-            'label' => 'Loan-ready shops',
-            'value' => '61%',
-        ],
-        [
-            'label' => 'Stock alerts open',
-            'value' => '17',
-        ],
+    'inventoryMix' => $bootstrap['inventoryMix'] ?? [
+        'labels' => [],
+        'values' => [],
     ],
-    'metrics' => [
-        [
-            'label' => 'Tracked businesses',
-            'value' => '248',
-            'delta' => '+18 this month',
-            'icon' => 'shop-window',
-            'tone' => 'forest',
-        ],
-        [
-            'label' => 'Mobile money volume',
-            'value' => 'UGX 182M',
-            'delta' => '+11% versus April',
-            'icon' => 'phone',
-            'tone' => 'amber',
-        ],
-        [
-            'label' => 'Average pilot score',
-            'value' => '72 / 100',
-            'delta' => '+4 points in 6 weeks',
-            'icon' => 'bar-chart-line',
-            'tone' => 'sage',
-        ],
-        [
-            'label' => 'Inventory risk',
-            'value' => '17 alerts',
-            'delta' => '6 need field support',
-            'icon' => 'boxes',
-            'tone' => 'clay',
-        ],
+    'scoreTrend' => $bootstrap['scoreTrend'] ?? [
+        'labels' => [],
+        'values' => [],
     ],
-    'collections' => [
-        'labels' => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-        'mobileMoney' => [22, 28, 31, 34, 39, 45],
-        'cash' => [18, 17, 16, 14, 13, 11],
-        'supplierPayments' => [11, 13, 14, 16, 19, 21],
+    'districtPerformance' => $bootstrap['districtPerformance'] ?? [
+        'labels' => [],
+        'scores' => [],
     ],
-    'inventoryMix' => [
-        'labels' => ['Groceries', 'Beverages', 'Airtime', 'Household'],
-        'values' => [44, 24, 18, 14],
-    ],
-    'scoreTrend' => [
-        'labels' => ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
-        'values' => [62, 65, 68, 71, 73, 77],
-    ],
-    'districtPerformance' => [
-        'labels' => ['Kampala', 'Wakiso', 'Mbarara', 'Gulu', 'Jinja'],
-        'scores' => [74, 71, 69, 67, 72],
-    ],
-    'stockAlerts' => [
-        [
-            'business' => 'Amina Retail Hub',
-            'district' => 'Kampala Central',
-            'category' => 'Sugar and flour',
-            'days' => '3 days of stock left',
-            'severity' => 'Critical',
-        ],
-        [
-            'business' => 'Kasana Home Store',
-            'district' => 'Wakiso',
-            'category' => 'Soap and cooking oil',
-            'days' => '5 days of stock left',
-            'severity' => 'High',
-        ],
-        [
-            'business' => 'Northern Fresh Point',
-            'district' => 'Gulu',
-            'category' => 'Soft drinks',
-            'days' => '7 days of stock left',
-            'severity' => 'Watch',
-        ],
-    ],
-    'businesses' => [
-        [
-            'name' => 'Amina Retail Hub',
-            'owner' => 'Amina Nankya',
-            'district' => 'Kampala Central',
-            'sector' => 'Groceries',
-            'dailyRevenue' => 'UGX 240k',
-            'stockHealth' => 'Low',
-            'score' => 78,
-            'reliability' => 'High',
-            'digitization' => '92%',
-        ],
-        [
-            'name' => 'Kasana Home Store',
-            'owner' => 'Ronald Kasana',
-            'district' => 'Wakiso',
-            'sector' => 'Household goods',
-            'dailyRevenue' => 'UGX 185k',
-            'stockHealth' => 'Medium',
-            'score' => 72,
-            'reliability' => 'High',
-            'digitization' => '84%',
-        ],
-        [
-            'name' => 'Jinja Lakeside Shop',
-            'owner' => 'Sarah Nabulime',
-            'district' => 'Jinja',
-            'sector' => 'Beverages',
-            'dailyRevenue' => 'UGX 164k',
-            'stockHealth' => 'Healthy',
-            'score' => 75,
-            'reliability' => 'Medium',
-            'digitization' => '80%',
-        ],
-        [
-            'name' => 'Mbarara Market Corner',
-            'owner' => 'Brian Turyasingura',
-            'district' => 'Mbarara',
-            'sector' => 'Mixed retail',
-            'dailyRevenue' => 'UGX 210k',
-            'stockHealth' => 'Medium',
-            'score' => 69,
-            'reliability' => 'Medium',
-            'digitization' => '76%',
-        ],
-        [
-            'name' => 'Northern Fresh Point',
-            'owner' => 'Grace Acen',
-            'district' => 'Gulu',
-            'sector' => 'Fresh produce',
-            'dailyRevenue' => 'UGX 138k',
-            'stockHealth' => 'Low',
-            'score' => 64,
-            'reliability' => 'Medium',
-            'digitization' => '68%',
-        ],
-        [
-            'name' => 'Mukono Digital Kiosk',
-            'owner' => 'Isaac Ssembajja',
-            'district' => 'Mukono',
-            'sector' => 'Airtime and utilities',
-            'dailyRevenue' => 'UGX 126k',
-            'stockHealth' => 'Healthy',
-            'score' => 81,
-            'reliability' => 'High',
-            'digitization' => '96%',
-        ],
-    ],
-    'scoreBreakdown' => [
-        [
-            'name' => 'Profit and stock consistency',
-            'weight' => '35%',
-            'description' => 'Compares inventory values, declared profit, and business size so suspicious gaps reduce the credit percentage.',
-        ],
-        [
-            'name' => 'Receipt trust',
-            'weight' => '25%',
-            'description' => 'Rewards businesses that can back their claims with more receipts and stronger receipt-value coverage.',
-        ],
-        [
-            'name' => 'Identity assurance',
-            'weight' => '20%',
-            'description' => 'Tracks when a ready business has submitted a NIN and whether NIRA or NITA verification has cleared it.',
-        ],
-        [
-            'name' => 'Record completeness',
-            'weight' => '20%',
-            'description' => 'Checks whether sales, location, stock, and digital payment details are complete enough to trust the credit model.',
-        ],
-    ],
-    'loanPrograms' => [
-        [
-            'provider' => 'Growth Window',
-            'size' => 'UGX 2M to 10M',
-            'requirement' => 'Credit score 70+, NIN submission, 90 days of consistent records',
-            'status' => 'Open for pilot',
-        ],
-        [
-            'provider' => 'Inventory Bridge',
-            'size' => 'UGX 500k to 3M',
-            'requirement' => 'Strong stock-profit alignment and receipt support',
-            'status' => 'Partner review',
-        ],
-        [
-            'provider' => 'Women in Trade Fund',
-            'size' => 'UGX 1M to 6M',
-            'requirement' => 'Verified owner NIN, credit score 68+, strong digital history',
-            'status' => 'Priority channel',
-        ],
-    ],
-    'districtInsights' => [
-        [
-            'district' => 'Kampala',
-            'businesses' => 92,
-            'avgScore' => 74,
-            'digitization' => '88%',
-            'priority' => 'Scale lender onboarding',
-        ],
-        [
-            'district' => 'Wakiso',
-            'businesses' => 57,
-            'avgScore' => 71,
-            'digitization' => '81%',
-            'priority' => 'Support stock visibility',
-        ],
-        [
-            'district' => 'Mbarara',
-            'businesses' => 34,
-            'avgScore' => 69,
-            'digitization' => '73%',
-            'priority' => 'Improve supplier reconciliation',
-        ],
-        [
-            'district' => 'Gulu',
-            'businesses' => 28,
-            'avgScore' => 67,
-            'digitization' => '69%',
-            'priority' => 'Field training on record capture',
-        ],
-        [
-            'district' => 'Jinja',
-            'businesses' => 37,
-            'avgScore' => 72,
-            'digitization' => '79%',
-            'priority' => 'Expand digital tax support',
-        ],
-    ],
-    'watchlist' => [
-        [
-            'title' => 'Repeated stock-outs in fast-moving goods',
-            'detail' => 'Forty-nine businesses report shortages in sugar, soap, or drinks more than twice per month.',
-        ],
-        [
-            'title' => 'Cash leakage in mixed-payment shops',
-            'detail' => 'Cash sales are still under-reported in shops where mobile money already exceeds half of total volume.',
-        ],
-        [
-            'title' => 'Slow adoption outside core urban corridors',
-            'detail' => 'Northern and western districts need more field-agent support before score quality will be comparable.',
-        ],
-    ],
-    'interventions' => [
-        [
-            'title' => 'Digitize supplier records',
-            'detail' => 'Start with soap, sugar, and beverage suppliers so the score can trust inventory replenishment patterns.',
-        ],
-        [
-            'title' => 'Target women-led shops',
-            'detail' => 'The pilot dataset already shows strong repayment discipline when digital sales logs are complete.',
-        ],
-        [
-            'title' => 'Deploy tax and licensing support',
-            'detail' => 'A lightweight compliance module can help government teams move strong performers into formal growth programs.',
-        ],
-    ],
+    'stockAlerts' => $bootstrap['stockAlerts'] ?? [],
+    'businesses' => [],
+    'scoreBreakdown' => $bootstrap['scoreBreakdown'] ?? [],
+    'loanPrograms' => $bootstrap['loanPrograms'] ?? [],
+    'districtInsights' => [],
+    'watchlist' => $bootstrap['watchlist'] ?? [],
+    'interventions' => $bootstrap['interventions'] ?? [],
 ];

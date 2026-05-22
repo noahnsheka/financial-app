@@ -5,12 +5,18 @@ This backend provides a lightweight JSON API for LedgerLift Uganda.
 ## Current MVP Endpoints
 
 - `GET /api/health/`
+- `GET /api/platform/bootstrap/`
 - `GET /api/businesses/`
+- `GET /api/businesses/<id>/`
 - `POST /api/businesses/`
+- `POST /api/businesses/<id>/stock-entries/`
+- `POST /api/businesses/<id>/documents/`
+- `PATCH /api/businesses/<id>/credit-draft/`
 - `POST /api/businesses/<id>/credit-registration/`
 - `GET /api/ledger/integrity/`
 - `GET /api/demo-accounts/`
 - `POST /api/auth/login/`
+- `POST /api/auth/register/`
 - `POST /api/auth/logout/`
 - `GET /api/auth/me/`
 
@@ -24,19 +30,15 @@ This backend provides a lightweight JSON API for LedgerLift Uganda.
 6. Run `python manage.py seed_demo_data`.
 7. Start the API with `python manage.py runserver 127.0.0.1:8001`.
 
-## Demo Credentials
+## Seed Data
 
-- Government officer: `gov.officer` / `GovDemo123!`
-- Lender: `lender.partner` / `LenderDemo123!`
-- Field agent: `field.agent` / `FieldDemo123!`
-
-Use these credentials on the PHP login page to open the role-based workspace. Authentication is checked against Django's real user records.
+`python manage.py seed_demo_data` provisions sample official users, a linked owner account, platform bootstrap configuration, and database-backed business workspace data. The live UI no longer exposes quick-fill credentials.
 
 ## TIN Strategy
 
 - `tin_number` is optional in the current MVP.
 - When present, the registration is marked as ready for tax lookup.
-- Demo registrations bypass the TIN requirement so the product can be showcased before URA integration is added.
+- Registrations without a TIN remain pending for future tax verification until the identifier is supplied.
 
 ## NIN Verification Configuration
 

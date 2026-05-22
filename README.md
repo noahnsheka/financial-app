@@ -14,11 +14,11 @@ LedgerLift Uganda is a lightweight PHP MVP for a government-facing fintech pilot
 ## Project Structure
 
 - `index.php` routes the requested page.
-- `app/data.php` contains realistic demo data for businesses, credit signals, and government insights.
+- `app/data.php` loads public dashboard, credit, and government bootstrap data from the Django API.
 - `app/views/` contains page templates.
 - `app/partials/` contains shared layout markup.
 - `assets/` contains custom CSS and JavaScript.
-- `backend/` contains the Django API for business registration, demo accounts, and future PostgreSQL integration.
+- `backend/` contains the Django API for authentication, business registration, platform bootstrap data, and owner workspace persistence.
 
 ## Run Locally
 
@@ -49,20 +49,19 @@ If you prefer to run each service yourself:
 
 ## GitHub Pages Demo
 
-GitHub Pages cannot run the PHP frontend or the Django backend. To make demos work properly on GitHub Pages, this repo now includes a static demo build under `docs/`.
+GitHub Pages cannot run the PHP frontend or the Django backend. The static build under `docs/` remains available as a legacy presentation surface, but it is no longer the authoritative deployed app.
 
 - `docs/index.html` is the Pages entry point.
-- `docs/assets/js/demo.js` contains seeded data, client-side routing, demo login, and browser-stored registrations.
-- `docs/assets/css/demo.css` contains the standalone Pages styling.
+- `docs/assets/js/demo.js` only powers the small static notice interactions.
+- `docs/assets/css/demo.css` styles the static notice page.
 - `.github/workflows/deploy-pages.yml` deploys the `docs/` folder through GitHub Actions.
 
 ### Demo Behavior
 
-- Demo registrations are stored in browser local storage.
-- Demo login uses the seeded showcase accounts client-side.
-- The static demo now includes a business-owner workspace with daily stock input, live graphs, monthly sales reporting, document tracking, and a front-end credit registration intake.
-- Charts, registry views, credit pages, and government views all work without a server.
-- Because `docs/` runs entirely in the browser, its local storage data is user-controlled and cannot be made tamper-proof. The signed ledger protection applies to the Django backend, not the static Pages demo.
+- The Pages output is informational only and does not run the product workflow.
+- It links users to the live Render deployment and shows the local startup command for the real stack.
+- It does not include seeded credentials, browser-stored registrations, or a second client-side owner workspace.
+- The signed ledger protection applies only to the Django-backed app, not to GitHub Pages.
 
 ### Publishing
 
@@ -70,31 +69,28 @@ GitHub Pages cannot run the PHP frontend or the Django backend. To make demos wo
 2. In the repository settings, set GitHub Pages to deploy from GitHub Actions.
 3. The `Deploy Pages Demo` workflow will publish the `docs/` folder.
 
-This keeps the local PHP and Django app available for full development while providing a Pages-safe demo build for stakeholders.
+This keeps the local PHP and Django app available for full development while leaving GitHub Pages as a clear pointer to the real deployment path.
 
 ## Render Deployment
 
-Render deployment is split into two services in this repo:
+Render deployment is now split into these services:
 
-- `docs/` is the public static site.
+- The public app is a Dockerized PHP web service built from the repository root and serving `index.php`, `app/`, and `assets/`.
 - `backend/` is the Django API service.
-
-The PHP frontend in `index.php` is still useful for local development, but the simplest Render path is the static `docs/` frontend plus the Django backend.
 
 ### Blueprint
 
-This repo now includes `render.yaml` so Render can create the static site, Django web service, and PostgreSQL database with one blueprint deploy.
+This repo includes `render.yaml` so Render can create the PHP web service, Django web service, and PostgreSQL database with one blueprint deploy.
 
 ### Manual Render Values
 
-Static site:
+Public app:
 
-- Service type: `Static Site`
+- Service type: `Web Service`
 - Name: `ledgerlift-uganda-demo`
-- Branch: `main`
-- Root Directory: leave blank
-- Build Command: `echo "static site ready"`
-- Publish Directory: `docs`
+- Environment: `Docker`
+- Dockerfile Path: `./Dockerfile`
+- Environment variable: `LEDGERLIFT_API_BASE_URL=https://ledgerlift-uganda-api.onrender.com/api`
 
 Backend web service:
 
@@ -128,17 +124,13 @@ For local development, Django now reads `backend/.env` automatically before it r
 
 ## App Flow
 
-- `Businesses` now loads live registrations from the Django API instead of the original mock PHP list.
-- `Login` authenticates against Django's seeded demo accounts.
-- `Workspace` shows a role-based control room for government, lender, field-agent, and business-owner users.
+- `Businesses` loads live registrations from the Django API.
+- `Login` authenticates against Django user records and no longer exposes quick-fill credentials in the UI.
+- `Workspace` shows a role-based control room for government, lender, field-agent, and business-owner users, with owner stock, document, and credit draft activity stored in the database.
 
-## Demo Accounts
+## Local Seed Data
 
-- Government officer: `gov.officer` / `GovDemo123!`
-- Lender: `lender.partner` / `LenderDemo123!`
-- Field agent: `field.agent` / `FieldDemo123!`
-
-These seeded demo accounts are designed to work even when a business does not yet have a live TIN.
+`python manage.py seed_demo_data` provisions sample official users, a linked owner account, public platform configuration, and database-backed business workspace data for local and deployment testing.
 
 ## SQL Search Result
 
@@ -149,4 +141,4 @@ I searched the accessible Desktop, Downloads, and Documents folders for `.sql` f
 1. Switch the Django database settings to PostgreSQL once the schema or SQL dump is ready.
 2. Add a URA tax lookup integration that validates the TIN and hydrates owner details.
 3. Connect mobile money and stock records to actual shop activity.
-4. Add authentication screens and role-specific dashboards on top of the seeded demo accounts.
+4. Replace the remaining legacy `docs/` showcase with the live API-backed frontend if GitHub Pages parity still matters.
