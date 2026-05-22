@@ -1,5 +1,7 @@
 import http.client
+import json
 import os
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -7,6 +9,7 @@ LISTEN_PORT = int(os.environ.get('PORT', '10000'))
 BACKEND_PORT = 8001
 FRONTEND_PORT = 8088
 BACKEND_PREFIXES = ('/api', '/admin')
+HEALTH_PATHS = {'/api/health', '/api/health/'}
 REQUEST_HEADER_EXCLUSIONS = {'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade'}
 RESPONSE_HEADER_EXCLUSIONS = REQUEST_HEADER_EXCLUSIONS | {'content-length', 'server', 'date', 'host'}
 
@@ -38,6 +41,33 @@ class LiveProxyHandler(BaseHTTPRequestHandler):
     def is_backend_request(self) -> bool:
         return any(self.path == prefix or self.path.startswith(prefix + '/') for prefix in BACKEND_PREFIXES)
 
+    def probe_upstream(self, port: int) -> bool:
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=2):
+                return True
+        except OSError:
+            return False
+
+    def handle_health_request(self) -> None:
+        backend_reachable = self.probe_upstream(BACKEND_PORT)
+        frontend_reachable = self.probe_upstream(FRONTEND_PORT)
+        status_code = 200 if backend_reachable and frontend_reachable else 503
+        payload = {
+            'status': 'ok' if status_code == 200 else 'degraded',
+            'service': 'ledgerlift-live-proxy',
+            'backend': 'reachable' if backend_reachable else 'unreachable',
+            'frontend': 'reachable' if frontend_reachable else 'unreachable',
+        }
+        response_body = json.dumps(payload).encode('utf-8')
+
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(response_body)))
+        self.end_headers()
+
+        if self.command != 'HEAD':
+            self.wfile.write(response_body)
+
     def build_upstream_headers(self) -> dict:
         forwarded_for = self.client_address[0]
         existing_forwarded_for = self.headers.get('X-Forwarded-For', '').strip()
@@ -57,6 +87,10 @@ class LiveProxyHandler(BaseHTTPRequestHandler):
         return headers
 
     def forward_request(self) -> None:
+        if self.path in HEALTH_PATHS:
+            self.handle_health_request()
+            return
+
         upstream_port = BACKEND_PORT if self.is_backend_request() else FRONTEND_PORT
         body_length = int(self.headers.get('Content-Length', '0') or '0')
         request_body = self.rfile.read(body_length) if body_length > 0 else None
