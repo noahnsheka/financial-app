@@ -89,7 +89,7 @@ This repo includes `render.yaml` so Render can create the PHP web service, Djang
 Public app:
 
 - Service type: `Web Service`
-- Name: `ledgerlift-uganda-demo`
+- Name: `financial-app`
 - Environment: `Docker`
 - Dockerfile Path: `./Dockerfile`
 - Environment variable: `LEDGERLIFT_API_BASE_URL=https://ledgerlift-uganda-api.onrender.com/api`
@@ -116,11 +116,11 @@ Backend environment variables:
 - `NITA_API_KEY=<agency-issued NITA API key>`
 - `UGANDA_IDENTITY_API_TIMEOUT=8`
 - `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
-- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
-- `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-demo.onrender.com`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+- `LEDGERLIFT_ALLOWED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `DATABASE_URL=<Render PostgreSQL connection string>`
 
-If you keep the default service names from `render.yaml`, those hostnames will match Render's generated URLs.
+The currently observed public frontend hostname is `https://financial-app.onrender.com`. Keep the backend origin list aligned with that host if the existing Render service is reused instead of creating a new frontend service name.
 Do not commit real NIRA or NITA credentials into the repository. Enter the live values directly in Render or your local environment file.
 For local development, Django now reads `backend/.env` automatically before it resolves these settings.
 
