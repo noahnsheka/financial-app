@@ -36,80 +36,53 @@ Render environment variables:
 - `DJANGO_ALLOWED_HOSTS=financial-app.onrender.com,127.0.0.1,localhost`
 - `DJANGO_CSRF_TRUSTED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `LEDGERLIFT_ALLOWED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
-## GitHub Pages Demo
+## GitHub Pages Redirect
 
-The live public host should be `https://financial-app.onrender.com`, with the frontend calling `/api/...` on that same origin instead of a second public backend hostname.
+The live public host is `https://financial-app.onrender.com`.
 
-- `docs/index.html` is the Pages entry point.
-- `docs/assets/js/demo.js` renders the static app shell and loads the shared frontend runtime.
-- `docs/assets/js/app.js` is a copied runtime build used by the Pages preview.
-- `docs/assets/css/app.css` is a copied stylesheet used by the Pages preview.
-- `docs/assets/data/*.json` contains database-exported snapshot data for public pages and preview sessions.
-- `.github/workflows/deploy-pages.yml` deploys the `docs/` folder through GitHub Actions.
-
-### Demo Behavior
-
-- Public dashboard, registry, credit, government, and owner-workspace preview pages render from snapshot files exported out of the Django database.
-- Sign-in and save actions are disabled on Pages, so writes still require the local stack or a repaired live deployment.
-- The Pages build no longer depends on the broken Render hostname to open the app shell.
-- The signed ledger protection and live mutations still apply only to the Django-backed app.
+- `docs/index.html` now redirects directly to the live Render host instead of rendering a static database snapshot.
+- `.github/workflows/deploy-pages.yml` still publishes the `docs/` folder through GitHub Actions, but that Pages site now acts only as a handoff to the live app.
 
 ### Publishing
 
 1. Push the repo to GitHub.
 2. In the repository settings, set GitHub Pages to deploy from GitHub Actions.
-3. The `Deploy Pages Demo` workflow will publish the `docs/` folder.
-
-This keeps the local PHP and Django app available for full development while allowing GitHub Pages to remain a usable read-only preview when the live deployment host is unavailable.
+3. The Pages workflow will publish the redirect page from `docs/`.
 
 ## Render Deployment
 
-Render deployment is now split into these services:
-
-- The public app is a Dockerized PHP web service built from the repository root and serving `index.php`, `app/`, and `assets/`.
-- `backend/` is the Django API service.
+Render deployment now runs as one Dockerized web service on the public host, with PHP serving `/`, Django serving `/api`, and a local reverse proxy routing both within the same container.
 
 ### Blueprint
 
-This repo includes `render.yaml` so Render can create the PHP web service, Django web service, and PostgreSQL database with one blueprint deploy.
+This repo includes `render.yaml` so Render can create the unified web service and PostgreSQL database with one blueprint deploy.
 
 ### Manual Render Values
-
-Public app:
 
 - Service type: `Web Service`
 - Name: `financial-app`
 - Environment: `Docker`
 - Dockerfile Path: `./Dockerfile`
-- Environment variable: `LEDGERLIFT_API_BASE_URL=https://ledgerlift-uganda-api.onrender.com/api`
+- Health Check Path: `/api/health/`
 
-Backend web service:
-
-- Service type: `Web Service`
-- Environment: `Python 3`
-- Name: `ledgerlift-uganda-api`
-- Branch: `main`
-- Root Directory: `backend`
-- Build Command: `pip install -r requirements.txt && python manage.py migrate && python manage.py seed_demo_data && python manage.py collectstatic --noinput`
-- Start Command: `gunicorn ledgerlift_backend.wsgi:application --bind 0.0.0.0:$PORT`
-
-Backend environment variables:
+Render environment variables:
 
 - `DJANGO_DEBUG=0`
 - `DJANGO_SECRET_KEY=<generate a long random value>`
 - `LEDGER_CHAIN_SECRET=<generate a second long random value reserved for ledger signing>`
 - `LEDGER_CHAIN_KEY_ID=render-primary`
+- `LEDGERLIFT_API_BASE_URL=/api`
+- `LEDGERLIFT_INTERNAL_API_BASE_URL=http://127.0.0.1:8001/api`
 - `NIRA_API_BASE_URL=<agency-issued NIRA verification endpoint>`
 - `NIRA_API_KEY=<agency-issued NIRA API key>`
 - `NITA_API_BASE_URL=<agency-issued NITA verification endpoint>`
 - `NITA_API_KEY=<agency-issued NITA API key>`
 - `UGANDA_IDENTITY_API_TIMEOUT=8`
-- `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
-- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
+- `DJANGO_ALLOWED_HOSTS=financial-app.onrender.com,127.0.0.1,localhost`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `LEDGERLIFT_ALLOWED_ORIGINS=https://financial-app.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
 - `DATABASE_URL=<Render PostgreSQL connection string>`
 
-The currently observed public frontend hostname is `https://financial-app.onrender.com`. Keep the backend origin list aligned with that host if the existing Render service is reused instead of creating a new frontend service name.
 Do not commit real NIRA or NITA credentials into the repository. Enter the live values directly in Render or your local environment file.
 For local development, Django now reads `backend/.env` automatically before it resolves these settings.
 
