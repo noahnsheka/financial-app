@@ -49,19 +49,21 @@ If you prefer to run each service yourself:
 
 ## GitHub Pages Demo
 
-GitHub Pages cannot run the PHP frontend or the Django backend. The static build under `docs/` remains available as a legacy presentation surface, but it is no longer the authoritative deployed app.
+GitHub Pages cannot run the PHP frontend or the Django backend. The static build under `docs/` now renders a read-only frontend preview from JSON files exported out of the local Django database.
 
 - `docs/index.html` is the Pages entry point.
-- `docs/assets/js/demo.js` only powers the small static notice interactions.
-- `docs/assets/css/demo.css` styles the static notice page.
+- `docs/assets/js/demo.js` renders the static app shell and loads the shared frontend runtime.
+- `docs/assets/js/app.js` is a copied runtime build used by the Pages preview.
+- `docs/assets/css/app.css` is a copied stylesheet used by the Pages preview.
+- `docs/assets/data/*.json` contains database-exported snapshot data for public pages and preview sessions.
 - `.github/workflows/deploy-pages.yml` deploys the `docs/` folder through GitHub Actions.
 
 ### Demo Behavior
 
-- The Pages output is informational only and does not run the product workflow.
-- It links users to the live Render deployment and shows the local startup command for the real stack.
-- It does not include seeded credentials, browser-stored registrations, or a second client-side owner workspace.
-- The signed ledger protection applies only to the Django-backed app, not to GitHub Pages.
+- Public dashboard, registry, credit, government, and owner-workspace preview pages render from snapshot files exported out of the Django database.
+- Sign-in and save actions are disabled on Pages, so writes still require the local stack or a repaired live deployment.
+- The Pages build no longer depends on the broken Render hostname to open the app shell.
+- The signed ledger protection and live mutations still apply only to the Django-backed app.
 
 ### Publishing
 
@@ -69,7 +71,7 @@ GitHub Pages cannot run the PHP frontend or the Django backend. The static build
 2. In the repository settings, set GitHub Pages to deploy from GitHub Actions.
 3. The `Deploy Pages Demo` workflow will publish the `docs/` folder.
 
-This keeps the local PHP and Django app available for full development while leaving GitHub Pages as a clear pointer to the real deployment path.
+This keeps the local PHP and Django app available for full development while allowing GitHub Pages to remain a usable read-only preview when the live deployment host is unavailable.
 
 ## Render Deployment
 
