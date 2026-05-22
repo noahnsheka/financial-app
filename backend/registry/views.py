@@ -1,5 +1,7 @@
 import json
 import os
+from collections import Counter
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
 
@@ -10,7 +12,15 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from .identity_verification import verify_uganda_identity
-from .models import AppSecurityLedgerBlock, BusinessRegistration, BusinessRegistrationLedgerBlock, DemoAccessProfile, serialize_decimal
+from .models import (
+    AppSecurityLedgerBlock,
+    BusinessRegistration,
+    BusinessRegistrationLedgerBlock,
+    clamp_score,
+    DemoAccessProfile,
+    PlatformConfiguration,
+    serialize_decimal,
+)
 
 
 OFFICIAL_ROLES = {
@@ -165,6 +175,418 @@ def build_request_security_payload(request: HttpRequest, **extra_fields) -> dict
     return payload
 
 
+def decimal_to_float(value) -> float:
+    try:
+        return float(Decimal(str(value or '0')))
+    except (InvalidOperation, TypeError, ValueError):
+        return 0.0
+
+
+def shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
+    absolute_month = (year * 12) + (month - 1) + offset
+    return absolute_month // 12, (absolute_month % 12) + 1
+
+
+def build_trailing_month_frames(count: int = 6) -> list[dict]:
+    today = timezone.localdate()
+    frames = []
+
+    for offset in range(-(count - 1), 1):
+        frame_year, frame_month = shift_month(today.year, today.month, offset)
+        frame_date = date(frame_year, frame_month, 1)
+        frames.append(
+            {
+                'key': frame_date.strftime('%Y-%m'),
+                'label': frame_date.strftime('%b'),
+            }
+        )
+
+    return frames
+
+
+def parse_workspace_month_key(entry: dict) -> str | None:
+    month_start = str(entry.get('month_start', '')).strip()
+
+    if not month_start:
+        return None
+
+    try:
+        parsed = date.fromisoformat(month_start[:10])
+    except ValueError:
+        return None
+
+    return parsed.replace(day=1).strftime('%Y-%m')
+
+
+def build_workspace_month_label(month_key: str) -> str:
+    try:
+        parsed = date.fromisoformat(f'{month_key}-01')
+    except ValueError:
+        return month_key
+
+    return parsed.strftime('%b')
+
+
+def format_compact_ugx(value: float) -> str:
+    rounded = round(max(0.0, value))
+
+    if rounded >= 1_000_000:
+        millions = rounded / 1_000_000
+        if millions.is_integer():
+            return f'UGX {int(millions)}M'
+        return f'UGX {millions:.1f}M'
+
+    if rounded >= 1_000:
+        thousands = rounded / 1_000
+        if thousands.is_integer():
+            return f'UGX {int(thousands)}k'
+        return f'UGX {thousands:.1f}k'
+
+    return f'UGX {int(rounded)}'
+
+
+def build_platform_collections(businesses: list[BusinessRegistration]) -> tuple[dict, dict]:
+    frames = build_trailing_month_frames()
+    has_workspace_months = False
+    buckets = {
+        frame['key']: {
+            'label': frame['label'],
+            'mobileMoney': 0.0,
+            'revenue': 0.0,
+            'expenses': 0.0,
+            'scoreTotal': 0.0,
+            'scoreCount': 0,
+        }
+        for frame in frames
+    }
+
+    for business in businesses:
+        workspace = business.normalized_workspace_payload
+        monthly_sales = workspace.get('monthly_sales') or []
+        matched_workspace_month = False
+
+        for entry in monthly_sales:
+            month_key = parse_workspace_month_key(entry)
+
+            if not month_key or month_key not in buckets:
+                continue
+
+            bucket = buckets[month_key]
+            has_workspace_months = True
+            bucket['mobileMoney'] += decimal_to_float(entry.get('mobile_money'))
+            bucket['revenue'] += decimal_to_float(entry.get('revenue'))
+            bucket['expenses'] += decimal_to_float(entry.get('expenses'))
+            bucket['scoreTotal'] += decimal_to_float(entry.get('readiness_score'))
+            bucket['scoreCount'] += 1
+            matched_workspace_month = True
+
+        if matched_workspace_month:
+            continue
+
+        fallback_key = business.updated_at.strftime('%Y-%m')
+
+        if fallback_key not in buckets:
+            continue
+
+        revenue = decimal_to_float(business.revenue_band_midpoint)
+
+        if revenue <= 0:
+            revenue = max(
+                decimal_to_float(business.average_monthly_mobile_money) + decimal_to_float(business.average_monthly_profit),
+                decimal_to_float(business.receipt_value_total),
+            )
+
+        expenses = max(revenue - decimal_to_float(business.average_monthly_profit), 0.0)
+        bucket = buckets[fallback_key]
+        bucket['mobileMoney'] += decimal_to_float(business.average_monthly_mobile_money)
+        bucket['revenue'] += revenue
+        bucket['expenses'] += expenses
+        bucket['scoreTotal'] += float(business.credit_score or 0)
+        bucket['scoreCount'] += 1
+
+    visible_frames = frames
+
+    if has_workspace_months:
+        visible_frames = [
+            frame
+            for frame in frames
+            if any(
+                [
+                    buckets[frame['key']]['mobileMoney'],
+                    buckets[frame['key']]['revenue'],
+                    buckets[frame['key']]['expenses'],
+                    buckets[frame['key']]['scoreCount'],
+                ]
+            )
+        ]
+
+        if not visible_frames:
+            visible_frames = frames
+
+    collections = {
+        'labels': [frame['label'] for frame in visible_frames],
+        'mobileMoney': [round(buckets[frame['key']]['mobileMoney'] / 1_000_000, 1) for frame in visible_frames],
+        'revenue': [round(buckets[frame['key']]['revenue'] / 1_000_000, 1) for frame in visible_frames],
+        'expenses': [round(buckets[frame['key']]['expenses'] / 1_000_000, 1) for frame in visible_frames],
+    }
+    score_trend = {
+        'labels': [frame['label'] for frame in visible_frames],
+        'values': [
+            round(buckets[frame['key']]['scoreTotal'] / buckets[frame['key']]['scoreCount'])
+            if buckets[frame['key']]['scoreCount']
+            else 0
+            for frame in visible_frames
+        ],
+    }
+    return collections, score_trend
+
+
+def build_inventory_mix(businesses: list[BusinessRegistration]) -> dict:
+    totals: Counter[str] = Counter()
+
+    for business in businesses:
+        sector = business.sector or 'Unassigned'
+        weight = decimal_to_float(business.inventory_value_estimate)
+        totals[sector] += weight if weight > 0 else 1
+
+    top_sectors = totals.most_common(4)
+    return {
+        'labels': [sector for sector, _ in top_sectors],
+        'values': [round(total, 1) for _, total in top_sectors],
+    }
+
+
+def build_district_performance(businesses: list[BusinessRegistration]) -> dict:
+    districts: dict[str, list[int]] = {}
+
+    for business in businesses:
+        district = business.district or 'Unknown'
+        districts.setdefault(district, []).append(int(business.credit_score or 0))
+
+    ranked = sorted(
+        (
+            {
+                'district': district,
+                'score': round(sum(scores) / len(scores)) if scores else 0,
+            }
+            for district, scores in districts.items()
+        ),
+        key=lambda item: item['score'],
+        reverse=True,
+    )[:5]
+
+    return {
+        'labels': [item['district'] for item in ranked],
+        'scores': [item['score'] for item in ranked],
+    }
+
+
+def build_stock_alerts(businesses: list[BusinessRegistration]) -> list[dict]:
+    alerts = []
+
+    for business in businesses:
+        latest_entries = {}
+
+        for entry in sorted(
+            business.normalized_workspace_payload.get('stock_entries') or [],
+            key=lambda value: str(value.get('date', '')),
+            reverse=True,
+        ):
+            item_name = str(entry.get('item_name', '')).strip()
+
+            if not item_name:
+                continue
+
+            item_key = item_name.lower()
+            if item_key not in latest_entries:
+                latest_entries[item_key] = entry
+
+        for entry in latest_entries.values():
+            on_hand = parse_non_negative_int(entry.get('on_hand', 0), 'Stock on hand')
+            reorder_level = parse_non_negative_int(entry.get('reorder_level', 0), 'Reorder level')
+
+            if reorder_level <= 0 or on_hand > reorder_level:
+                continue
+
+            shortfall = reorder_level - on_hand
+            severity = 'Critical' if on_hand == 0 or shortfall >= max(3, reorder_level // 2) else 'High'
+            alerts.append(
+                {
+                    'business': business.business_name,
+                    'district': business.district,
+                    'category': str(entry.get('item_name', '')).strip() or business.stock_focus or business.sector,
+                    'coverage': f'{on_hand} units on hand',
+                    'severity': severity,
+                }
+            )
+
+    if len(alerts) >= 3:
+        return alerts[:3]
+
+    fallback_businesses = sorted(
+        businesses,
+        key=lambda business: (
+            0 if business.fraud_risk_level == 'high' else 1,
+            int(business.receipt_count or 0),
+            int(business.credit_score or 0),
+        ),
+    )
+
+    for business in fallback_businesses:
+        if any(alert['business'] == business.business_name for alert in alerts):
+            continue
+
+        alerts.append(
+            {
+                'business': business.business_name,
+                'district': business.district,
+                'category': business.stock_focus or business.sector or 'Operating records',
+                'coverage': 'Follow up on record quality and operating evidence',
+                'severity': 'Critical' if business.fraud_risk_level == 'high' else 'Watch',
+            }
+        )
+
+        if len(alerts) == 3:
+            break
+
+    return alerts
+
+
+def build_platform_bootstrap_payload() -> dict:
+    businesses = list(BusinessRegistration.objects.select_related('account_user').all())
+    platform_configuration = PlatformConfiguration.get_solo()
+    total_businesses = len(businesses)
+    district_count = len({business.district for business in businesses if business.district})
+    mobile_money_linked = sum(
+        1
+        for business in businesses
+        if business.mobile_money_number or decimal_to_float(business.average_monthly_mobile_money) > 0
+    )
+    credit_ready = sum(1 for business in businesses if business.is_credit_ready)
+    high_risk = sum(1 for business in businesses if business.fraud_risk_level == 'high')
+    watch_risk = sum(1 for business in businesses if business.fraud_risk_level == 'watch')
+    collections, score_trend = build_platform_collections(businesses)
+    stock_alerts = build_stock_alerts(businesses)
+    average_credit_score = round(
+        sum(int(business.credit_score or 0) for business in businesses) / total_businesses
+    ) if total_businesses else 0
+    total_mobile_money = sum(decimal_to_float(business.average_monthly_mobile_money) for business in businesses)
+
+    return {
+        'registrationForm': platform_configuration.registration_form,
+        'scoreBreakdown': platform_configuration.score_breakdown,
+        'loanPrograms': platform_configuration.loan_programs,
+        'heroStats': [
+            {'label': 'Districts live', 'value': str(district_count)},
+            {
+                'label': 'Mobile money capture',
+                'value': f"{round((mobile_money_linked / total_businesses) * 100) if total_businesses else 0}%",
+            },
+            {
+                'label': 'Credit-ready businesses',
+                'value': f"{round((credit_ready / total_businesses) * 100) if total_businesses else 0}%",
+            },
+            {'label': 'Open follow-ups', 'value': str(len(stock_alerts) or high_risk + watch_risk)},
+        ],
+        'metrics': [
+            {
+                'label': 'Tracked businesses',
+                'value': str(total_businesses),
+                'delta': f'{district_count} districts live',
+                'icon': 'shop-window',
+                'tone': 'forest',
+            },
+            {
+                'label': 'Monthly mobile money',
+                'value': format_compact_ugx(total_mobile_money),
+                'delta': f'{mobile_money_linked} businesses linked to digital payments',
+                'icon': 'phone',
+                'tone': 'amber',
+            },
+            {
+                'label': 'Average credit score',
+                'value': f'{average_credit_score} / 100',
+                'delta': f'{credit_ready} businesses are ready for credit review',
+                'icon': 'bar-chart-line',
+                'tone': 'sage',
+            },
+            {
+                'label': 'Follow-up alerts',
+                'value': str(len(stock_alerts) or high_risk + watch_risk),
+                'delta': f'{high_risk} high-risk businesses need immediate review',
+                'icon': 'boxes',
+                'tone': 'clay',
+            },
+        ],
+        'collections': collections,
+        'inventoryMix': build_inventory_mix(businesses),
+        'scoreTrend': score_trend,
+        'districtPerformance': build_district_performance(businesses),
+        'stockAlerts': stock_alerts,
+    }
+
+
+def get_business_access_context(request: HttpRequest, business_id: int):
+    business = BusinessRegistration.objects.select_related('account_user').filter(pk=business_id).first()
+
+    if business is None:
+        return None, '', False, json_response({'error': 'Business not found.'}, status=404, request=request)
+
+    user_role = get_user_role(request.user)
+    owned_business = get_owned_business(request.user)
+    can_manage_business = (
+        user_role == DemoAccessProfile.Role.BUSINESS_OWNER
+        and owned_business is not None
+        and owned_business.pk == business.pk
+    )
+    return business, user_role, can_manage_business, None
+
+
+def append_workspace_monthly_sale(workspace: dict, stock_entry: dict, business: BusinessRegistration) -> None:
+    entry_date = str(stock_entry.get('date', '')).strip()
+
+    try:
+        parsed_date = date.fromisoformat(entry_date[:10]) if entry_date else timezone.localdate()
+    except ValueError:
+        parsed_date = timezone.localdate()
+
+    month_start = parsed_date.replace(day=1).isoformat()
+    monthly_sales = list(workspace.get('monthly_sales') or [])
+    sale_index = next(
+        (index for index, sale in enumerate(monthly_sales) if str(sale.get('month_start', '')) == month_start),
+        None,
+    )
+    sold = parse_non_negative_int(stock_entry.get('sold', 0), 'Units sold')
+    selling_price = decimal_to_float(stock_entry.get('selling_price'))
+    revenue_delta = sold * selling_price
+
+    if sale_index is None:
+        monthly_sales.append(
+            {
+                'id': f'month-{parsed_date.strftime("%Y%m")}-{business.pk}',
+                'month_start': month_start,
+                'label': build_workspace_month_label(month_start[:7]),
+                'revenue': serialize_decimal(revenue_delta),
+                'expenses': '0.00',
+                'orders': sold,
+                'mobile_money': '0.00',
+                'cash_sales': serialize_decimal(revenue_delta),
+                'supplier_payments': '0.00',
+                'readiness_score': int(business.credit_readiness_score or 0),
+            }
+        )
+    else:
+        current_sale = dict(monthly_sales[sale_index])
+        current_sale['revenue'] = serialize_decimal(decimal_to_float(current_sale.get('revenue')) + revenue_delta)
+        current_sale['cash_sales'] = serialize_decimal(decimal_to_float(current_sale.get('cash_sales')) + revenue_delta)
+        current_sale['orders'] = parse_non_negative_int(current_sale.get('orders', 0), 'Orders') + sold
+        current_sale['readiness_score'] = int(business.credit_readiness_score or 0)
+        monthly_sales[sale_index] = current_sale
+
+    monthly_sales.sort(key=lambda sale: str(sale.get('month_start', '')))
+    workspace['monthly_sales'] = monthly_sales
+
+
 def serialize_business(business: BusinessRegistration) -> dict:
     return {
         'id': business.id,
@@ -213,6 +635,7 @@ def serialize_business(business: BusinessRegistration) -> dict:
             BusinessRegistration.CreditRegistrationStatus.NOT_STARTED,
             BusinessRegistration.CreditRegistrationStatus.ELIGIBLE,
         },
+        'workspace': business.normalized_workspace_payload,
         'notes': business.notes,
         'account_username': business.account_user.get_username() if business.account_user_id else '',
         'created_at': business.created_at.isoformat(),
@@ -283,6 +706,16 @@ def health_check(request: HttpRequest) -> HttpResponse:
     )
 
 
+def platform_bootstrap(request: HttpRequest) -> HttpResponse:
+    if request.method == 'OPTIONS':
+        return options_response(request)
+
+    if request.method != 'GET':
+        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    return json_response(build_platform_bootstrap_payload(), request=request)
+
+
 def ledger_integrity(request: HttpRequest) -> HttpResponse:
     if request.method == 'OPTIONS':
         return options_response(request)
@@ -327,6 +760,7 @@ def service_root(request: HttpRequest) -> HttpResponse:
             'health': '/api/health/',
             'endpoints': [
                 '/api/health/',
+                '/api/platform/bootstrap/',
                 '/api/demo-accounts/',
                 '/api/auth/login/',
                 '/api/auth/register/',
@@ -334,6 +768,9 @@ def service_root(request: HttpRequest) -> HttpResponse:
                 '/api/auth/me/',
                 '/api/businesses/',
                 '/api/businesses/<id>/',
+                '/api/businesses/<id>/stock-entries/',
+                '/api/businesses/<id>/documents/',
+                '/api/businesses/<id>/credit-draft/',
                 '/api/businesses/<id>/credit-registration/',
                 '/api/ledger/integrity/',
             ],
@@ -511,6 +948,167 @@ def business_detail(request: HttpRequest, business_id: int) -> HttpResponse:
     return json_response(
         {
             'message': 'Business profile updated.',
+            'business': serialize_business(business),
+        },
+        request=request,
+    )
+
+
+@csrf_exempt
+def business_stock_entries(request: HttpRequest, business_id: int) -> HttpResponse:
+    if request.method == 'OPTIONS':
+        return options_response(request)
+
+    if not request.user.is_authenticated:
+        return json_response({'error': 'Authentication required.'}, status=401, request=request)
+
+    business, _, can_manage_business, error_response = get_business_access_context(request, business_id)
+    if error_response is not None:
+        return error_response
+
+    if not can_manage_business:
+        return json_response({'error': 'Only the assigned business owner can update stock entries.'}, status=403, request=request)
+
+    if request.method != 'POST':
+        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    try:
+        payload = parse_request_payload(request)
+    except json.JSONDecodeError:
+        return json_response({'error': 'Request body must be valid JSON.'}, status=400, request=request)
+
+    item_name = str(payload.get('item_name', '')).strip()
+
+    if not item_name:
+        return json_response({'error': 'Stock item name is required.'}, status=400, request=request)
+
+    try:
+        stock_entry = {
+            'id': f'stock-{timezone.now():%Y%m%d%H%M%S%f}',
+            'date': str(payload.get('date', '')).strip() or timezone.localdate().isoformat(),
+            'item_name': item_name,
+            'category': str(payload.get('category', '')).strip() or business.sector or 'Retail',
+            'unit': str(payload.get('unit', '')).strip() or 'units',
+            'on_hand': parse_non_negative_int(payload.get('on_hand', 0), 'Stock on hand'),
+            'received': parse_non_negative_int(payload.get('received', 0), 'Units received'),
+            'sold': parse_non_negative_int(payload.get('sold', 0), 'Units sold'),
+            'reorder_level': parse_non_negative_int(payload.get('reorder_level', 0), 'Reorder level'),
+            'selling_price': serialize_decimal(parse_non_negative_decimal(payload.get('selling_price', 0), 'Selling price')),
+        }
+    except ValueError as exc:
+        return json_response({'error': str(exc)}, status=400, request=request)
+
+    workspace = business.normalized_workspace_payload
+    workspace['stock_entries'] = [stock_entry, *(workspace.get('stock_entries') or [])][:24]
+    append_workspace_monthly_sale(workspace, stock_entry, business)
+    business.workspace_payload = workspace
+    business.save(ledger_actor=request.user.get_username())
+
+    return json_response(
+        {
+            'message': 'Stock entry saved.',
+            'business': serialize_business(business),
+        },
+        request=request,
+    )
+
+
+@csrf_exempt
+def business_documents(request: HttpRequest, business_id: int) -> HttpResponse:
+    if request.method == 'OPTIONS':
+        return options_response(request)
+
+    if not request.user.is_authenticated:
+        return json_response({'error': 'Authentication required.'}, status=401, request=request)
+
+    business, _, can_manage_business, error_response = get_business_access_context(request, business_id)
+    if error_response is not None:
+        return error_response
+
+    if not can_manage_business:
+        return json_response({'error': 'Only the assigned business owner can update documents.'}, status=403, request=request)
+
+    if request.method != 'POST':
+        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    try:
+        payload = parse_request_payload(request)
+    except json.JSONDecodeError:
+        return json_response({'error': 'Request body must be valid JSON.'}, status=400, request=request)
+
+    document_name = str(payload.get('name', '')).strip()
+
+    if not document_name:
+        return json_response({'error': 'Document name is required.'}, status=400, request=request)
+
+    workspace = business.normalized_workspace_payload
+    workspace['documents'] = [
+        {
+            'id': f'doc-{timezone.now():%Y%m%d%H%M%S%f}',
+            'name': document_name,
+            'type': str(payload.get('type', '')).strip() or 'General',
+            'reference': str(payload.get('reference', '')).strip(),
+            'due_date': str(payload.get('due_date', '')).strip(),
+            'status': str(payload.get('status', '')).strip() or 'Pending',
+        },
+        *(workspace.get('documents') or []),
+    ][:10]
+    business.workspace_payload = workspace
+    business.save(ledger_actor=request.user.get_username())
+
+    return json_response(
+        {
+            'message': 'Document saved.',
+            'business': serialize_business(business),
+        },
+        request=request,
+    )
+
+
+@csrf_exempt
+def business_credit_draft(request: HttpRequest, business_id: int) -> HttpResponse:
+    if request.method == 'OPTIONS':
+        return options_response(request)
+
+    if not request.user.is_authenticated:
+        return json_response({'error': 'Authentication required.'}, status=401, request=request)
+
+    business, _, can_manage_business, error_response = get_business_access_context(request, business_id)
+    if error_response is not None:
+        return error_response
+
+    if not can_manage_business:
+        return json_response({'error': 'Only the assigned business owner can update the credit draft.'}, status=403, request=request)
+
+    if request.method != 'PATCH':
+        return json_response({'error': 'Method not allowed.'}, status=405, request=request)
+
+    try:
+        payload = parse_request_payload(request)
+    except json.JSONDecodeError:
+        return json_response({'error': 'Request body must be valid JSON.'}, status=400, request=request)
+
+    try:
+        requested_amount = serialize_decimal(parse_non_negative_decimal(payload.get('requested_amount', 0), 'Requested amount'))
+    except ValueError as exc:
+        return json_response({'error': str(exc)}, status=400, request=request)
+
+    workspace = business.normalized_workspace_payload
+    workspace['credit_draft'] = {
+        'requested_amount': requested_amount,
+        'loan_purpose': str(payload.get('loan_purpose', '')).strip(),
+        'repayment_window': str(payload.get('repayment_window', '')).strip() or '6 months',
+        'bookkeeping_score': clamp_score(decimal_to_float(payload.get('bookkeeping_score', 0))),
+        'supplier_score': clamp_score(decimal_to_float(payload.get('supplier_score', 0))),
+        'collateral_notes': str(payload.get('collateral_notes', '')).strip(),
+        'registration_status': 'Database-backed draft',
+    }
+    business.workspace_payload = workspace
+    business.save(ledger_actor=request.user.get_username())
+
+    return json_response(
+        {
+            'message': 'Credit draft updated.',
             'business': serialize_business(business),
         },
         request=request,

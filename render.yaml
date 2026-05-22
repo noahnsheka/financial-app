@@ -1,14 +1,14 @@
 services:
   - type: static
-    name: ledgerlift-uganda-demo
-    buildCommand: echo "static site ready"
-    staticPublishPath: docs
+    name: ledgerlift-uganda-web
+    buildCommand: echo "LedgerLift static site ready"
+    staticPublishPath: render
 
   - type: web
     name: ledgerlift-uganda-api
     env: python
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && python manage.py migrate && python manage.py seed_demo_data && python manage.py collectstatic --noinput
+    buildCommand: pip install -r requirements.txt && python manage.py migrate --noinput && python manage.py collectstatic --noinput
     startCommand: gunicorn ledgerlift_backend.wsgi:application --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health/
     envVars:
@@ -33,9 +33,9 @@ services:
       - key: DJANGO_ALLOWED_HOSTS
         value: ledgerlift-uganda-api.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
-        value: https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com
+        value: https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-web.onrender.com
       - key: LEDGERLIFT_ALLOWED_ORIGINS
-        value: https://ledgerlift-uganda-demo.onrender.com
+        value: https://ledgerlift-uganda-web.onrender.com
       - key: DATABASE_URL
         fromDatabase:
           name: ledgerlift-uganda-db

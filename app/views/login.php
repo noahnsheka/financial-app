@@ -7,7 +7,7 @@
                     <h2 class="h4 mb-1">Sign in as an official or business owner</h2>
                     <p class="text-muted mb-0">Officials and linked business owners see different post-login workspaces, but they enter through the same secure sign-in flow.</p>
                 </div>
-                <span class="pill-note pill-note-muted align-self-start">Demo auth enabled</span>
+                <span class="pill-note pill-note-muted align-self-start">Live access</span>
             </div>
 
             <form class="row g-3" data-login-form>
@@ -24,7 +24,7 @@
                 </div>
                 <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
                     <button class="btn btn-warning btn-lg px-4" type="submit" data-login-submit>Sign in</button>
-                    <small class="text-muted">Use the quick-fill accounts on the right if you are testing the login flow.</small>
+                    <small class="text-muted">Use an active account for your role to enter the live platform.</small>
                 </div>
             </form>
         </article>
@@ -155,26 +155,17 @@
 
     <div class="col-lg-5">
         <article class="panel mb-4">
-            <p class="section-kicker mb-2">Quick fill</p>
-            <h2 class="h4 mb-4">Use the seeded official and owner identities</h2>
+            <p class="section-kicker mb-2">Access notes</p>
+            <h2 class="h4 mb-4">Account provisioning guidance</h2>
             <div class="registration-feed">
-                <?php foreach ($data['demoAccounts'] as $account): ?>
-                    <div class="feed-item">
-                        <strong class="d-block mb-2"><?php echo e($account['displayName']); ?></strong>
-                        <div class="text-muted small mb-2"><?php echo e($account['role']); ?></div>
-                        <div class="small mb-1"><strong>Username:</strong> <?php echo e($account['username']); ?></div>
-                        <div class="small mb-3"><strong>Password:</strong> <?php echo e($account['password']); ?></div>
-                        <button
-                            class="btn btn-outline-success btn-sm"
-                            type="button"
-                            data-demo-credential
-                            data-username="<?php echo e($account['username']); ?>"
-                            data-password="<?php echo e($account['password']); ?>"
-                        >
-                            Use this account
-                        </button>
-                    </div>
-                <?php endforeach; ?>
+                <div class="feed-item">
+                    <strong class="d-block mb-2">Official accounts</strong>
+                    <p class="mb-0 text-muted">Government, lender, and field-operations accounts should be provisioned by the programme team.</p>
+                </div>
+                <div class="feed-item">
+                    <strong class="d-block mb-2">Business-owner accounts</strong>
+                    <p class="mb-0 text-muted">Business owners can create their own account below and immediately receive a linked business profile.</p>
+                </div>
             </div>
         </article>
 

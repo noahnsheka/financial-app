@@ -24,7 +24,7 @@ LedgerLift Uganda is a lightweight PHP MVP for a government-facing fintech pilot
 
 1. Install PHP 8 or newer if it is not already available.
 2. Install Python 3.14 or newer if it is not already available.
-3. From the project root, start both local services with `powershell -ExecutionPolicy Bypass -File .\run-local.ps1`.
+3. From the project root, start both local services with `run-local.bat` or `powershell -ExecutionPolicy Bypass -File .\run-local.ps1`.
 4. Open `http://127.0.0.1:8088` in your browser.
 
 ### Manual Startup
@@ -36,14 +36,13 @@ If you prefer to run each service yourself:
 	- `python -m pip install -r requirements.txt`
 	- `python manage.py makemigrations registry`
 	- `python manage.py migrate`
-	- `python manage.py seed_demo_data`
 	- `python manage.py runserver 127.0.0.1:8001`
 3. Open `http://127.0.0.1:8088` in your browser.
 
 ### Local Notes
 
 - The main app uses the Django SQLite database at `backend/db.sqlite3` by default.
-- `run-local.ps1` starts the frontend on `127.0.0.1:8088` because port `8000` commonly conflicts with other local services.
+- `run-local.ps1` and `run-local.bat` start the frontend on `127.0.0.1:8088` because port `8000` commonly conflicts with other local services.
 - The startup script checks ports before launching and tells you which process is blocking them if there is a conflict.
 - The Django API accepts local `localhost` and `127.0.0.1` frontend origins, so the login flow can still work when the PHP frontend is moved to another local port.
 
@@ -76,10 +75,10 @@ This keeps the local PHP and Django app available for full development while pro
 
 Render deployment is split into two services in this repo:
 
-- `docs/` is the public static site.
+- `render/` is the public static site.
 - `backend/` is the Django API service.
 
-The PHP frontend in `index.php` is still useful for local development, but the simplest Render path is the static `docs/` frontend plus the Django backend.
+The PHP frontend in `index.php` is still useful for local development, while Render serves the static overview from `render/` and the live API from `backend/`.
 
 ### Blueprint
 
@@ -94,7 +93,7 @@ Static site:
 - Branch: `main`
 - Root Directory: leave blank
 - Build Command: `echo "static site ready"`
-- Publish Directory: `docs`
+- Publish Directory: `render`
 
 Backend web service:
 
@@ -103,7 +102,7 @@ Backend web service:
 - Name: `ledgerlift-uganda-api`
 - Branch: `main`
 - Root Directory: `backend`
-- Build Command: `pip install -r requirements.txt && python manage.py migrate && python manage.py seed_demo_data && python manage.py collectstatic --noinput`
+- Build Command: `pip install -r requirements.txt && python manage.py migrate --noinput && python manage.py collectstatic --noinput`
 - Start Command: `gunicorn ledgerlift_backend.wsgi:application --bind 0.0.0.0:$PORT`
 
 Backend environment variables:
@@ -118,8 +117,8 @@ Backend environment variables:
 - `NITA_API_KEY=<agency-issued NITA API key>`
 - `UGANDA_IDENTITY_API_TIMEOUT=8`
 - `DJANGO_ALLOWED_HOSTS=ledgerlift-uganda-api.onrender.com`
-- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-demo.onrender.com`
-- `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-demo.onrender.com`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://ledgerlift-uganda-api.onrender.com,https://ledgerlift-uganda-web.onrender.com`
+- `LEDGERLIFT_ALLOWED_ORIGINS=https://ledgerlift-uganda-web.onrender.com`
 - `DATABASE_URL=<Render PostgreSQL connection string>`
 
 If you keep the default service names from `render.yaml`, those hostnames will match Render's generated URLs.

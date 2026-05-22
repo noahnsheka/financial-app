@@ -17,7 +17,7 @@
                 <div>
                     <p class="section-kicker mb-2">Credit trend</p>
                     <h2 class="h4 mb-1">The score improves as records become more complete</h2>
-                    <p class="text-muted mb-0">This chart is a placeholder for the scoring pipeline you can later back with real payment, stock, and repayment data.</p>
+                    <p class="text-muted mb-0">This chart now reflects the live scoring pipeline data returned by the backend.</p>
                 </div>
                 <span class="pill-note align-self-start">6-week model view</span>
             </div>
@@ -30,7 +30,7 @@
     <div class="col-lg-5">
         <article class="panel h-100">
             <p class="section-kicker mb-2">Lender channels</p>
-            <h2 class="h4 mb-3">Sample facilities for the MVP</h2>
+            <h2 class="h4 mb-3">Configured lending channels</h2>
 
             <div class="table-responsive">
                 <table class="table align-middle mb-0">

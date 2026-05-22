@@ -118,15 +118,8 @@
                     <div class="col-lg-5">
                         <div class="hero-card">
                             <p class="section-kicker mb-3">Pilot pulse</p>
-                            <div class="row g-3">
-                                <?php foreach ($data['heroStats'] as $stat): ?>
-                                    <div class="col-6">
-                                        <div class="stat-chip h-100">
-                                            <strong><?php echo e($stat['value']); ?></strong>
-                                            <span><?php echo e($stat['label']); ?></span>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
+                            <div class="row g-3" data-dashboard-hero-stats>
+                                <div class="col-12 text-white-50">Loading live summary metrics...</div>
                             </div>
                             <div class="hero-note mt-3">
                                 <strong class="d-block mb-2">Pilot objective</strong>

@@ -1,20 +1,5 @@
-<section class="row g-3 mb-3">
-    <?php foreach ($data['metrics'] as $metric): ?>
-        <div class="col-sm-6 col-xl-3">
-            <article class="panel metric-card h-100">
-                <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                    <div>
-                        <p class="section-kicker mb-2"><?php echo e($metric['label']); ?></p>
-                        <h2 class="metric-value mb-2"><?php echo e($metric['value']); ?></h2>
-                        <p class="metric-delta mb-0"><?php echo e($metric['delta']); ?></p>
-                    </div>
-                    <span class="metric-icon metric-icon-<?php echo e($metric['tone']); ?>">
-                        <i class="bi bi-<?php echo e($metric['icon']); ?>"></i>
-                    </span>
-                </div>
-            </article>
-        </div>
-    <?php endforeach; ?>
+<section class="row g-3 mb-3" data-dashboard-metrics>
+    <div class="col-12 text-muted">Loading live dashboard metrics...</div>
 </section>
 
 <section class="row g-3 mb-3">
@@ -23,8 +8,8 @@
             <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
                 <div>
                     <p class="section-kicker mb-2">Revenue signal</p>
-                    <h2 class="h4 mb-1">Mobile money is becoming the core evidence trail</h2>
-                    <p class="text-muted mb-0">The strongest shops are shifting toward digital payment capture while supplier activity grows in parallel.</p>
+                    <h2 class="h4 mb-1">Recorded revenue, expense, and mobile-money trends</h2>
+                    <p class="text-muted mb-0">This view now reflects the operating figures currently stored in the database instead of a seeded showcase trend.</p>
                 </div>
                 <span class="pill-note align-self-start">6-month trend</span>
             </div>
@@ -37,8 +22,8 @@
     <div class="col-lg-4">
         <article class="panel h-100">
             <p class="section-kicker mb-2">Inventory mix</p>
-            <h2 class="h4 mb-1">Fast-moving categories driving the pilot</h2>
-            <p class="text-muted mb-3">Groceries and beverages dominate the earliest onboarding wave, which makes stock monitoring a core risk control.</p>
+                    <h2 class="h4 mb-1">Business segments captured in the registry</h2>
+                    <p class="text-muted mb-3">Sector mix is now calculated from the current database-backed business records.</p>
             <div class="chart-frame chart-frame-tall">
                 <canvas id="inventoryMixChart"></canvas>
             </div>
@@ -52,10 +37,10 @@
             <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
                 <div>
                     <p class="section-kicker mb-2">Stock watch</p>
-                    <h2 class="h4 mb-1">Businesses that need immediate follow-up</h2>
-                    <p class="text-muted mb-0">Low inventory visibility will weaken both score quality and business continuity unless field teams intervene early.</p>
+                    <h2 class="h4 mb-1">Businesses that need follow-up now</h2>
+                    <p class="text-muted mb-0">These follow-up rows are generated from the latest operating evidence stored in the database.</p>
                 </div>
-                <span class="pill-note align-self-start"><?php echo e(count($data['stockAlerts'])); ?> open alerts</span>
+                <span class="pill-note align-self-start" data-dashboard-alert-count>Loading alerts...</span>
             </div>
 
             <div class="table-responsive">
@@ -69,20 +54,10 @@
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <?php foreach ($data['stockAlerts'] as $alert): ?>
-                            <tr>
-                                <td><?php echo e($alert['business']); ?></td>
-                                <td><?php echo e($alert['district']); ?></td>
-                                <td><?php echo e($alert['category']); ?></td>
-                                <td><?php echo e($alert['days']); ?></td>
-                                <td>
-                                    <span class="status-pill status-pill-<?php echo strtolower(e($alert['severity'])); ?>">
-                                        <?php echo e($alert['severity']); ?>
-                                    </span>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
+                    <tbody data-dashboard-stock-alerts>
+                        <tr>
+                            <td colspan="5" class="text-muted">Loading live follow-up alerts...</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>

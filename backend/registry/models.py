@@ -93,6 +93,79 @@ REVENUE_BAND_MIDPOINTS = {
     'Above UGX 10M': Decimal('12000000'),
 }
 
+DEFAULT_PLATFORM_REGISTRATION_FORM = {
+    'districts': ['Kampala', 'Wakiso', 'Mukono', 'Jinja', 'Mbarara', 'Gulu', 'Mbale'],
+    'sectors': ['Groceries', 'Beverages', 'Household goods', 'Pharmacy', 'Fresh produce', 'Airtime and utilities', 'Mixed retail'],
+    'revenueBands': ['Below UGX 1M', 'UGX 1M - 3M', 'UGX 3M - 6M', 'UGX 6M - 10M', 'Above UGX 10M'],
+}
+
+DEFAULT_PLATFORM_SCORE_BREAKDOWN = [
+    {
+        'name': 'Profit and stock consistency',
+        'weight': '35%',
+        'description': 'Compares inventory values, declared profit, and operating scale so large gaps reduce trust.',
+    },
+    {
+        'name': 'Receipt trust',
+        'weight': '25%',
+        'description': 'Rewards businesses that support their claims with receipt count and value coverage.',
+    },
+    {
+        'name': 'Identity assurance',
+        'weight': '20%',
+        'description': 'Tracks NIN capture and the current state of identity verification.',
+    },
+    {
+        'name': 'Record completeness',
+        'weight': '20%',
+        'description': 'Checks whether location, payment, stock, and revenue details are complete enough for review.',
+    },
+]
+
+DEFAULT_PLATFORM_LOAN_PROGRAMS = [
+    {
+        'provider': 'Working Capital Window',
+        'size': 'UGX 500k to 5M',
+        'requirement': 'Improving score, usable receipt history, and stable operating records',
+        'status': 'Programme setup',
+    },
+    {
+        'provider': 'Inventory Growth Line',
+        'size': 'UGX 1M to 8M',
+        'requirement': 'Consistent stock evidence and reliable mobile money activity',
+        'status': 'Partner review',
+    },
+]
+
+
+def default_platform_registration_form() -> dict:
+    return json.loads(json.dumps(DEFAULT_PLATFORM_REGISTRATION_FORM))
+
+
+def default_platform_score_breakdown() -> list[dict]:
+    return json.loads(json.dumps(DEFAULT_PLATFORM_SCORE_BREAKDOWN))
+
+
+def default_platform_loan_programs() -> list[dict]:
+    return json.loads(json.dumps(DEFAULT_PLATFORM_LOAN_PROGRAMS))
+
+
+def default_owner_workspace_payload() -> dict:
+    return {
+        'stock_entries': [],
+        'monthly_sales': [],
+        'documents': [],
+        'credit_draft': {
+            'requested_amount': '',
+            'loan_purpose': '',
+            'repayment_window': '',
+            'bookkeeping_score': 0,
+            'supplier_score': 0,
+            'collateral_notes': '',
+            'registration_status': 'Not started',
+        },
+    }
+
 
 def hash_ledger_block(*, chain_index: int, previous_hash: str, business_id: int, operation: str, payload: dict) -> str:
     block_payload = {
@@ -160,6 +233,7 @@ class BusinessRegistration(models.Model):
     )
     credit_registration_reference = models.CharField(max_length=60, blank=True)
     credit_registration_submitted_at = models.DateTimeField(null=True, blank=True)
+    workspace_payload = models.JSONField(blank=True, default=default_owner_workspace_payload)
     notes = models.TextField(blank=True)
     account_user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -445,6 +519,43 @@ class BusinessRegistration(models.Model):
             gaps.append('Add monthly profit figures so the credit engine can compare operating performance.')
 
         return gaps
+
+    @property
+    def normalized_workspace_payload(self) -> dict:
+        defaults = default_owner_workspace_payload()
+        payload = self.workspace_payload if isinstance(self.workspace_payload, dict) else {}
+
+        normalized = {
+            'stock_entries': list(payload.get('stock_entries') or defaults['stock_entries']),
+            'monthly_sales': list(payload.get('monthly_sales') or defaults['monthly_sales']),
+            'documents': list(payload.get('documents') or defaults['documents']),
+            'credit_draft': dict(defaults['credit_draft']),
+        }
+        normalized['credit_draft'].update(payload.get('credit_draft') or {})
+        return normalized
+
+
+class PlatformConfiguration(models.Model):
+    singleton_id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    registration_form = models.JSONField(default=default_platform_registration_form)
+    score_breakdown = models.JSONField(default=default_platform_score_breakdown)
+    loan_programs = models.JSONField(default=default_platform_loan_programs)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'platform configuration'
+        verbose_name_plural = 'platform configuration'
+
+    def save(self, *args, **kwargs):
+        self.singleton_id = 1
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return 'Platform configuration'
+
+    @classmethod
+    def get_solo(cls):
+        return cls.objects.get_or_create(singleton_id=1)[0]
 
 
 class BusinessRegistrationChainState(models.Model):

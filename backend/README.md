@@ -27,8 +27,7 @@ This backend provides a lightweight JSON API for LedgerLift Uganda.
 3. Install dependencies with `python -m pip install -r requirements.txt`.
 4. Run `python manage.py makemigrations registry`.
 5. Run `python manage.py migrate`.
-6. Run `python manage.py seed_demo_data`.
-7. Start the API with `python manage.py runserver 127.0.0.1:8001`.
+6. Start the API with `python manage.py runserver 127.0.0.1:8001`.
 
 ## Seed Data
 

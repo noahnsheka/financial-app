@@ -1,4 +1,4 @@
-const appData = window.finTrackData || {};
+let appData = window.finTrackData || {};
 
 if (window.Chart) {
     Chart.defaults.font.family = "'Public Sans', sans-serif";
@@ -43,8 +43,8 @@ const initializeCharts = () => {
                     fill: true,
                 },
                 {
-                    label: 'Cash volume',
-                    data: appData.collections?.cash || [],
+                    label: 'Recorded revenue',
+                    data: appData.collections?.revenue || [],
                     borderColor: palette.amber,
                     backgroundColor: palette.amberSoft,
                     borderWidth: 2,
@@ -52,8 +52,8 @@ const initializeCharts = () => {
                     fill: false,
                 },
                 {
-                    label: 'Supplier payments',
-                    data: appData.collections?.supplierPayments || [],
+                    label: 'Recorded expenses',
+                    data: appData.collections?.expenses || [],
                     borderColor: palette.clay,
                     borderWidth: 2,
                     tension: 0.35,
@@ -229,6 +229,10 @@ const governmentCategories = document.querySelector('[data-government-categories
 const governmentDistrictCount = document.querySelector('[data-government-district-count]');
 const governmentDistrictTable = document.querySelector('[data-government-district-table]');
 const governmentInterventions = document.querySelector('[data-government-interventions]');
+const dashboardHeroStats = document.querySelector('[data-dashboard-hero-stats]');
+const dashboardMetricsGrid = document.querySelector('[data-dashboard-metrics]');
+const dashboardAlertCount = document.querySelector('[data-dashboard-alert-count]');
+const dashboardStockAlerts = document.querySelector('[data-dashboard-stock-alerts]');
 
 const isLocalFrontend = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const configuredApiBaseUrl = (appData.apiBaseUrl || 'http://127.0.0.1:8001/api').replace(/\/$/, '');
@@ -252,7 +256,7 @@ const roleBlueprints = {
         workspaceDescription: 'Prioritize districts, track TIN-ready businesses, and decide where onboarding and financing support should go next.',
         notes: [
             'Focus on TIN-ready businesses when preparing a government support shortlist.',
-            'Use demo accounts only for showcase activity and keep them out of policy reporting.',
+            'Use only authenticated live records when preparing policy reporting and support shortlists.',
             'Watch districts with low profile scores because they need field support before lender rollout.',
         ],
         actions: [
@@ -266,7 +270,7 @@ const roleBlueprints = {
         notes: [
             'Use strong profile scores as an initial filter before introducing real underwriting logic.',
             'TIN-ready profiles are better candidates for formal loan pipelines.',
-            'Demo accounts are useful for walkthroughs but should not enter real credit committees.',
+            'Exclude weakly evidenced profiles until the operating data improves.',
         ],
         actions: [
             { title: 'Inspect credit view', detail: 'Use the credit engine page to explain the scoring logic behind the MVP.', href: '?page=credit', cta: 'Open credit engine' },
@@ -275,9 +279,9 @@ const roleBlueprints = {
     },
     field_agent: {
         workspaceTitle: 'Field agent workspace',
-        workspaceDescription: 'Register new shops quickly, keep demo mode available for showcases, and follow up on incomplete business profiles.',
+        workspaceDescription: 'Register new shops quickly and follow up on incomplete business profiles.',
         notes: [
-            'Use demo mode when the business has no working TIN but the team still needs a full product demo.',
+            'Capture clean evidence early so the business profile is usable for both oversight and credit review.',
             'Collect mobile money numbers and revenue bands early because they improve the profile score quickly.',
             'Review recent live registrations daily and close the biggest completeness gaps first.',
         ],
@@ -433,6 +437,96 @@ const renderGuestAccessWall = () => {
     `;
 };
 
+const renderDashboardHeroStats = () => {
+    if (!dashboardHeroStats) {
+        return;
+    }
+
+    const stats = Array.isArray(appData.heroStats) ? appData.heroStats : [];
+
+    dashboardHeroStats.innerHTML = stats.length > 0
+        ? stats
+            .map((stat) => `
+                <div class="col-6">
+                    <div class="stat-chip h-100">
+                        <strong>${escapeMarkup(stat.value || '0')}</strong>
+                        <span>${escapeMarkup(stat.label || 'Metric')}</span>
+                    </div>
+                </div>
+            `)
+            .join('')
+        : '<div class="col-12 text-white-50">Live summary metrics are not available yet.</div>';
+};
+
+const renderDashboardMetrics = () => {
+    if (!dashboardMetricsGrid) {
+        return;
+    }
+
+    const metrics = Array.isArray(appData.metrics) ? appData.metrics : [];
+
+    dashboardMetricsGrid.innerHTML = metrics.length > 0
+        ? metrics
+            .map((metric) => `
+                <div class="col-sm-6 col-xl-3">
+                    <article class="panel metric-card h-100">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <p class="section-kicker mb-2">${escapeMarkup(metric.label || 'Metric')}</p>
+                                <h2 class="metric-value mb-2">${escapeMarkup(metric.value || '0')}</h2>
+                                <p class="metric-delta mb-0">${escapeMarkup(metric.delta || '')}</p>
+                            </div>
+                            <span class="metric-icon metric-icon-${escapeMarkup(metric.tone || 'forest')}">
+                                <i class="bi bi-${escapeMarkup(metric.icon || 'bar-chart-line')}"></i>
+                            </span>
+                        </div>
+                    </article>
+                </div>
+            `)
+            .join('')
+        : '<div class="col-12 text-muted">Live dashboard metrics are not available yet.</div>';
+};
+
+const renderDashboardStockAlerts = () => {
+    if (!dashboardStockAlerts) {
+        return;
+    }
+
+    const alerts = Array.isArray(appData.stockAlerts) ? appData.stockAlerts : [];
+
+    if (dashboardAlertCount) {
+        dashboardAlertCount.textContent = alerts.length > 0 ? `${alerts.length} open alerts` : 'No open alerts';
+    }
+
+    dashboardStockAlerts.innerHTML = alerts.length > 0
+        ? alerts
+            .map((alert) => `
+                <tr>
+                    <td>${escapeMarkup(alert.business || 'Unassigned')}</td>
+                    <td>${escapeMarkup(alert.district || 'Unknown')}</td>
+                    <td>${escapeMarkup(alert.category || 'Operating records')}</td>
+                    <td>${escapeMarkup(alert.coverage || 'Follow up required')}</td>
+                    <td>
+                        <span class="status-pill status-pill-${String(alert.severity || 'watch').toLowerCase()}">
+                            ${escapeMarkup(alert.severity || 'Watch')}
+                        </span>
+                    </td>
+                </tr>
+            `)
+            .join('')
+        : `
+            <tr>
+                <td colspan="5" class="text-muted">No live follow-up alerts are open right now.</td>
+            </tr>
+        `;
+};
+
+const renderDashboardData = () => {
+    renderDashboardHeroStats();
+    renderDashboardMetrics();
+    renderDashboardStockAlerts();
+};
+
 const updateDashboardHeroActions = (session) => {
     if (!dashboardPrimaryCta || !dashboardSecondaryCta) {
         return;
@@ -499,6 +593,17 @@ const clampScoreValue = (value) => Math.max(0, Math.min(100, Math.round(toNumber
 const averageValue = (values) => values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : 0;
+
+const loadPlatformBootstrap = async () => {
+    try {
+        const payload = await fetchJson('/platform/bootstrap/');
+        appData = { ...appData, ...payload };
+    } catch (error) {
+        // Keep the page usable with the embedded config if the backend is unavailable.
+    }
+
+    renderDashboardData();
+};
 
 const buildRelativeIsoDate = (daysAgo = 0) => {
     const date = new Date();
@@ -627,11 +732,23 @@ const buildOwnerSeedCreditProfile = (business, monthlySales) => {
         bookkeeping_score: clampScoreValue((business?.receipt_trust_score || 0) || 72),
         supplier_score: clampScoreValue((business?.consistency_score || 0) || 74),
         collateral_notes: 'Inventory, receipt trail, and mobile-money record available for review.',
-        registration_status: 'Draft front-end intake',
+        registration_status: 'Database draft pending first save',
     };
 };
 
 const normalizeOwnerWorkspaceData = (value, business) => {
+    const normalizedValue = value && typeof value === 'object'
+        ? {
+            stockEntries: Array.isArray(value.stock_entries) ? value.stock_entries : value.stockEntries,
+            monthlySales: Array.isArray(value.monthly_sales) ? value.monthly_sales : value.monthlySales,
+            documents: Array.isArray(value.documents) ? value.documents : value.documents,
+            creditProfile: value.credit_draft
+                ? {
+                    ...(value.credit_draft || {}),
+                }
+                : value.creditProfile,
+        }
+        : value;
     const seedMonthlySales = buildOwnerSeedMonthlySales(business);
     const seed = {
         stockEntries: buildOwnerSeedStockEntries(business),
@@ -641,33 +758,23 @@ const normalizeOwnerWorkspaceData = (value, business) => {
     };
 
     return {
-        stockEntries: Array.isArray(value?.stockEntries) && value.stockEntries.length > 0
-            ? value.stockEntries
+        stockEntries: Array.isArray(normalizedValue?.stockEntries) && normalizedValue.stockEntries.length > 0
+            ? normalizedValue.stockEntries
             : seed.stockEntries,
-        monthlySales: Array.isArray(value?.monthlySales) && value.monthlySales.length > 0
-            ? value.monthlySales
+        monthlySales: Array.isArray(normalizedValue?.monthlySales) && normalizedValue.monthlySales.length > 0
+            ? normalizedValue.monthlySales
             : seed.monthlySales,
-        documents: Array.isArray(value?.documents) && value.documents.length > 0
-            ? value.documents
+        documents: Array.isArray(normalizedValue?.documents) && normalizedValue.documents.length > 0
+            ? normalizedValue.documents
             : seed.documents,
         creditProfile: {
             ...seed.creditProfile,
-            ...(value?.creditProfile || {}),
+            ...(normalizedValue?.creditProfile || {}),
         },
     };
 };
 
-const getOwnerWorkspaceData = (business) => {
-    if (!business?.id) {
-        return normalizeOwnerWorkspaceData({}, business || {});
-    }
-
-    const store = readOwnerWorkspaceStore();
-    const normalized = normalizeOwnerWorkspaceData(store[business.id], business);
-    store[business.id] = normalized;
-    writeOwnerWorkspaceStore(store);
-    return normalized;
-};
+const getOwnerWorkspaceData = (business) => normalizeOwnerWorkspaceData(business?.workspace || {}, business || {});
 
 const updateOwnerWorkspaceData = (business, updater) => {
     if (!business?.id) {
@@ -1261,7 +1368,7 @@ const bindOwnerStockForm = (session, businesses, business) => {
     }
 
     stockForm.dataset.bound = 'true';
-    stockForm.addEventListener('submit', (event) => {
+    stockForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const formData = new FormData(stockForm);
@@ -1272,45 +1379,36 @@ const bindOwnerStockForm = (session, businesses, business) => {
             return;
         }
 
-        const sold = Math.max(0, Math.round(toNumber(formData.get('sold'))));
-        const sellingPrice = Math.max(0, toNumber(formData.get('selling_price')));
+        const payload = {
+            date: String(formData.get('date') || buildRelativeIsoDate(0)).trim(),
+            item_name: itemName,
+            category: String(formData.get('category') || '').trim() || business.sector || 'Retail',
+            unit: String(formData.get('unit') || '').trim() || 'units',
+            on_hand: Math.max(0, Math.round(toNumber(formData.get('on_hand')))),
+            received: Math.max(0, Math.round(toNumber(formData.get('received')))),
+            sold: Math.max(0, Math.round(toNumber(formData.get('sold')))),
+            reorder_level: Math.max(0, Math.round(toNumber(formData.get('reorder_level')))),
+            selling_price: Math.max(0, toNumber(formData.get('selling_price'))),
+        };
 
-        updateOwnerWorkspaceData(business, (current) => {
-            const monthlySales = [...(current.monthlySales || [])];
+        try {
+            const result = await fetchJson(`/businesses/${business.id}/stock-entries/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
 
-            if (monthlySales.length > 0) {
-                const lastIndex = monthlySales.length - 1;
-                const currentMonth = monthlySales[lastIndex];
-                monthlySales[lastIndex] = {
-                    ...currentMonth,
-                    revenue: Math.round(toNumber(currentMonth.revenue) + (sold * sellingPrice)),
-                    orders: Math.round(toNumber(currentMonth.orders) + sold),
-                };
-            }
-
-            return {
-                ...current,
-                stockEntries: [
-                    {
-                        id: `stock-${Date.now()}`,
-                        date: String(formData.get('date') || buildRelativeIsoDate(0)).trim(),
-                        item_name: itemName,
-                        category: String(formData.get('category') || '').trim() || business.sector || 'Retail',
-                        unit: String(formData.get('unit') || '').trim() || 'units',
-                        on_hand: Math.max(0, Math.round(toNumber(formData.get('on_hand')))),
-                        received: Math.max(0, Math.round(toNumber(formData.get('received')))),
-                        sold,
-                        reorder_level: Math.max(0, Math.round(toNumber(formData.get('reorder_level')))),
-                        selling_price: sellingPrice,
-                    },
-                    ...(current.stockEntries || []),
-                ].slice(0, 24),
-                monthlySales,
-            };
-        });
-
-        renderWorkspace(session, businesses);
-        showOwnerStockMessage('Stock entry saved. The charts and monthly report were refreshed.', 'success');
+            const nextSession = { user: { ...session.user, business: result.business } };
+            storeSession(nextSession.user);
+            const refreshedBusinesses = await loadBusinesses();
+            renderWorkspace(nextSession, refreshedBusinesses);
+            showOwnerStockMessage('Stock entry saved. The workspace was refreshed from the database.', 'success');
+        } catch (error) {
+            showOwnerStockMessage(error.message || 'Unable to save the stock entry right now.', 'error');
+        }
     });
 };
 
@@ -1322,7 +1420,7 @@ const bindOwnerDocumentForm = (session, businesses, business) => {
     }
 
     documentForm.dataset.bound = 'true';
-    documentForm.addEventListener('submit', (event) => {
+    documentForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const formData = new FormData(documentForm);
@@ -1333,23 +1431,30 @@ const bindOwnerDocumentForm = (session, businesses, business) => {
             return;
         }
 
-        updateOwnerWorkspaceData(business, (current) => ({
-            ...current,
-            documents: [
-                {
-                    id: `doc-${Date.now()}`,
+        try {
+            const result = await fetchJson(`/businesses/${business.id}/documents/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
                     name,
                     type: String(formData.get('type') || '').trim() || 'General',
                     reference: String(formData.get('reference') || '').trim(),
                     due_date: String(formData.get('due_date') || '').trim(),
                     status: String(formData.get('status') || '').trim() || 'Pending',
-                },
-                ...(current.documents || []),
-            ].slice(0, 10),
-        }));
+                }),
+            });
 
-        renderWorkspace(session, businesses);
-        showOwnerDocumentMessage('Document tracker updated for this business.', 'success');
+            const nextSession = { user: { ...session.user, business: result.business } };
+            storeSession(nextSession.user);
+            const refreshedBusinesses = await loadBusinesses();
+            renderWorkspace(nextSession, refreshedBusinesses);
+            showOwnerDocumentMessage('Document tracker updated from the database.', 'success');
+        } catch (error) {
+            showOwnerDocumentMessage(error.message || 'Unable to save the document right now.', 'error');
+        }
     });
 };
 
@@ -1361,7 +1466,7 @@ const bindOwnerCreditIntakeForm = (session, businesses, business) => {
     }
 
     creditIntakeForm.dataset.bound = 'true';
-    creditIntakeForm.addEventListener('submit', (event) => {
+    creditIntakeForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const formData = new FormData(creditIntakeForm);
@@ -1372,22 +1477,31 @@ const bindOwnerCreditIntakeForm = (session, businesses, business) => {
             return;
         }
 
-        updateOwnerWorkspaceData(business, (current) => ({
-            ...current,
-            creditProfile: {
-                ...(current.creditProfile || {}),
-                requested_amount: requestedAmount,
-                loan_purpose: String(formData.get('loan_purpose') || '').trim(),
-                repayment_window: String(formData.get('repayment_window') || '').trim() || '6 months',
-                bookkeeping_score: clampScoreValue(formData.get('bookkeeping_score')),
-                supplier_score: clampScoreValue(formData.get('supplier_score')),
-                collateral_notes: String(formData.get('collateral_notes') || '').trim(),
-                registration_status: 'Front-end intake updated',
-            },
-        }));
+        try {
+            const result = await fetchJson(`/businesses/${business.id}/credit-draft/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    requested_amount: requestedAmount,
+                    loan_purpose: String(formData.get('loan_purpose') || '').trim(),
+                    repayment_window: String(formData.get('repayment_window') || '').trim() || '6 months',
+                    bookkeeping_score: clampScoreValue(formData.get('bookkeeping_score')),
+                    supplier_score: clampScoreValue(formData.get('supplier_score')),
+                    collateral_notes: String(formData.get('collateral_notes') || '').trim(),
+                }),
+            });
 
-        renderWorkspace(session, businesses);
-        showOwnerCreditIntakeMessage('Front-end credit intake saved and the preview score was recalculated.', 'success');
+            const nextSession = { user: { ...session.user, business: result.business } };
+            storeSession(nextSession.user);
+            const refreshedBusinesses = await loadBusinesses();
+            renderWorkspace(nextSession, refreshedBusinesses);
+            showOwnerCreditIntakeMessage('Credit intake saved to the database and the preview was refreshed.', 'success');
+        } catch (error) {
+            showOwnerCreditIntakeMessage(error.message || 'Unable to save the credit intake right now.', 'error');
+        }
     });
 };
 
@@ -1983,13 +2097,13 @@ const renderWorkspace = (session, businesses) => {
         }
 
         if (workspaceDescription) {
-            workspaceDescription.textContent = 'Use one of the seeded demo accounts to unlock role-specific tasks, live business metrics, and the correct dashboard links.';
+            workspaceDescription.textContent = 'Sign in with an active account to unlock role-specific tasks, live business metrics, and the correct dashboard links.';
         }
 
         if (currentUserCard) {
             currentUserCard.innerHTML = `
                 <strong class="d-block mb-2">Not signed in</strong>
-                <p class="mb-3 text-muted">Authenticate with a seeded account to view a role-specific workspace.</p>
+                <p class="mb-3 text-muted">Authenticate with an active account to view a role-specific workspace.</p>
                 <a class="btn btn-outline-success btn-sm" href="?page=login">Go to login</a>
             `;
         }
@@ -2005,7 +2119,7 @@ const renderWorkspace = (session, businesses) => {
     const isOfficial = officialRoles.has(user.role);
     const totalBusinesses = businesses.length;
     const tinReadyCount = businesses.filter((business) => business.tax_lookup_status === 'ready_for_lookup').length;
-    const demoCount = businesses.filter((business) => business.is_demo_account).length;
+    const pendingTinCount = businesses.filter((business) => !business.tin_number).length;
     const strongProfiles = businesses.filter((business) => (business.profile_score || 0) >= 75).length;
     const averageScore = totalBusinesses
         ? Math.round(businesses.reduce((sum, business) => sum + (business.profile_score || 0), 0) / totalBusinesses)
@@ -2015,19 +2129,19 @@ const renderWorkspace = (session, businesses) => {
         government: [
             { label: 'Registered businesses', value: String(totalBusinesses), detail: 'All live registrations currently visible.' },
             { label: 'TIN-ready businesses', value: String(tinReadyCount), detail: 'Profiles ready for future URA lookup.' },
-            { label: 'Demo accounts', value: String(demoCount), detail: 'Showcase registrations kept separate from live activity.' },
+            { label: 'Profiles missing TIN', value: String(pendingTinCount), detail: 'Follow up where formal tax readiness is still incomplete.' },
             { label: 'Average profile score', value: `${averageScore}/100`, detail: 'Completeness level across the current registry.' },
         ],
         lender: [
             { label: 'Strong profiles', value: String(strongProfiles), detail: 'Businesses above the current readiness threshold.' },
             { label: 'TIN-ready businesses', value: String(tinReadyCount), detail: 'Best candidates for formal credit pilots.' },
             { label: 'Average profile score', value: `${averageScore}/100`, detail: 'Use this as a quick registry quality signal.' },
-            { label: 'Live businesses', value: String(totalBusinesses - demoCount), detail: 'Records that are not marked as demo-only.' },
+            { label: 'Visible businesses', value: String(totalBusinesses), detail: 'Records currently available for review.' },
         ],
         field_agent: [
             { label: 'Businesses onboarded', value: String(totalBusinesses), detail: 'Current businesses captured in the registry.' },
-            { label: 'Profiles missing TIN', value: String(totalBusinesses - tinReadyCount - demoCount), detail: 'Follow up when formalization is appropriate.' },
-            { label: 'Demo registrations', value: String(demoCount), detail: 'Useful for product demos before tax verification goes live.' },
+            { label: 'Profiles missing TIN', value: String(pendingTinCount), detail: 'Follow up when formalization is appropriate.' },
+            { label: 'Strong profiles', value: String(strongProfiles), detail: 'Businesses already carrying enough evidence for the next review.' },
             { label: 'Average profile score', value: `${averageScore}/100`, detail: 'Completeness level of the captured business records.' },
         ],
     };
@@ -2242,7 +2356,7 @@ const renderWorkspace = (session, businesses) => {
                             </div>
                             <div class="col-12 d-flex flex-column flex-sm-row justify-content-between gap-3 align-items-start align-items-sm-center">
                                 <button class="btn btn-warning btn-lg px-4" type="submit">Save stock entry</button>
-                                <small class="text-muted">This tracker is front-end only for now, but the charts update immediately after each save.</small>
+                                <small class="text-muted">This tracker now saves to the database, and the charts refresh after each save.</small>
                             </div>
                         </form>
                         <div class="table-responsive mt-4">
@@ -2287,7 +2401,7 @@ const renderWorkspace = (session, businesses) => {
                                 <strong class="d-block mb-2">Read business movement as you record it</strong>
                                 <p class="text-muted mb-0">Stock levels and sales trend are refreshed from the same owner workspace data.</p>
                             </div>
-                            <span class="pill-note pill-note-muted align-self-start">Front-end analytics</span>
+                            <span class="pill-note pill-note-muted align-self-start">Database-backed analytics</span>
                         </div>
                         <div class="chart-frame chart-frame-wide mb-4">
                             <canvas id="ownerStockPositionChart"></canvas>
@@ -2317,7 +2431,7 @@ const renderWorkspace = (session, businesses) => {
                                 <strong class="d-block mb-2">Track the files needed for compliance and credit</strong>
                                 <p class="text-muted mb-0">Add references for licences, statements, and business papers so the owner pack feels complete.</p>
                             </div>
-                            <span class="pill-note pill-note-muted align-self-start">Front-end tracker</span>
+                            <span class="pill-note pill-note-muted align-self-start">Database-backed tracker</span>
                         </div>
                         <form class="row g-3" data-owner-document-form data-business-id="${business.id}">
                             <div class="col-md-6">
@@ -2374,8 +2488,8 @@ const renderWorkspace = (session, businesses) => {
                         <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-4">
                             <div>
                                 <p class="section-kicker mb-2">Credit score registration</p>
-                                <strong class="d-block mb-2">Capture a front-end lender intake</strong>
-                                <p class="text-muted mb-0">This is a front-end only pre-check for now. It gives the owner a working score pack before backend underwriting arrives.</p>
+                                <strong class="d-block mb-2">Capture a lender intake draft</strong>
+                                <p class="text-muted mb-0">This draft now saves to the backend so the owner workspace can keep a persistent credit-preparation record.</p>
                             </div>
                             <span class="pill-note pill-note-success align-self-start">${creditPreview.score}/100 preview</span>
                         </div>
@@ -2784,6 +2898,7 @@ if (logoutButton) {
 
 const initializeApp = async () => {
     const session = await hydrateSession();
+    await loadPlatformBootstrap();
 
     updateDashboardHeroActions(session);
 
